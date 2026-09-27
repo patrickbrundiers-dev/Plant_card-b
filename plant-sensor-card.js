@@ -9,6 +9,9 @@
  * (entity picker) so sensors are picked from the UI - no YAML needed.
  *
  * https://github.com/patrickbrundiers-dev/Plant_card-b
+ *
+ * See CARD_VERSION below - bump it and push to publish a new release
+ * (a GitHub Action then creates the matching GitHub Release automatically).
  */
 
 const CARD_VERSION = "2.1.0";
