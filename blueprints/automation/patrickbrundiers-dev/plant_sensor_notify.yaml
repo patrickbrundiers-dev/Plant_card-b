@@ -1,0 +1,83 @@
+blueprint:
+  name: Pflanzensensor-Hinweis (Benachrichtigung)
+  description: >
+    Schickt eine Benachrichtigung, wenn ein Pflanzensensor für eine
+    festgelegte Dauer unter- oder überhalb eines Grenzwerts liegt. Nutzt
+    dieselbe Logik wie die Plant Sensor Card (Min/Max + Verzögerung), damit
+    kurze Ausreißer nicht sofort einen Alarm auslösen. Unabhängig von der
+    Karte nutzbar, z. B. auch wenn kein Dashboard offen ist.
+  domain: automation
+  source_url: https://github.com/patrickbrundiers-dev/Plant_card-b/blob/main/blueprints/automation/patrickbrundiers-dev/plant_sensor_notify.yaml
+  input:
+    sensor_entity:
+      name: Sensor
+      description: Der zu überwachende Pflanzensensor (z. B. Feuchtigkeit, Temperatur).
+      selector:
+        entity:
+          domain: sensor
+    below:
+      name: Unterer Grenzwert (optional)
+      description: Löst aus, wenn der Wert darunter fällt. Leer lassen, um nur auf "über" zu prüfen.
+      default: -1
+      selector:
+        number:
+          min: -1
+          max: 100000
+          mode: box
+    above:
+      name: Oberer Grenzwert (optional)
+      description: Löst aus, wenn der Wert darüber steigt. Leer lassen, um nur auf "unter" zu prüfen.
+      default: -1
+      selector:
+        number:
+          min: -1
+          max: 100000
+          mode: box
+    for_duration:
+      name: Mindestdauer
+      description: So lange muss der Grenzwert überschritten sein, bevor benachrichtigt wird.
+      default:
+        minutes: 30
+      selector:
+        duration: {}
+    notify_target:
+      name: Benachrichtigungsziel
+      description: Der notify-Dienst, an den die Nachricht gesendet wird (z. B. notify.mobile_app_mein_handy).
+      selector:
+        text: {}
+    message:
+      name: Nachricht
+      description: >
+        Freitext für die Benachrichtigung. {{ '{{ states(sensor_entity) }}' }}
+        kann verwendet werden, um den aktuellen Wert einzufügen.
+      default: "Deine Pflanze braucht Aufmerksamkeit."
+      selector:
+        text:
+          multiline: true
+
+trigger:
+  - platform: numeric_state
+    entity_id: !input sensor_entity
+    below: !input below
+    for: !input for_duration
+    id: below
+  - platform: numeric_state
+    entity_id: !input sensor_entity
+    above: !input above
+    for: !input for_duration
+    id: above
+
+condition: []
+
+variables:
+  message_text: !input message
+
+action:
+  - service: !input notify_target
+    data:
+      title: "Pflanzenhinweis"
+      message: >-
+        {{ message_text }}
+        (aktueller Wert: {{ trigger.to_state.state }} {{ trigger.to_state.attributes.unit_of_measurement | default('') }})
+
+mode: single
