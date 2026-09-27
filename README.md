@@ -16,9 +16,17 @@ keine YAML-Bearbeitung nötig.
 - Funktioniert mit **jedem** Sensor, egal welche Integration dahintersteckt
   (Mi Flora / BLE, Zigbee, ESPHome, FYTA, Xiaomi, ...)
 - Optionaler Name, Spezies und Bild für die Pflanze
-- Optionale Min/Max-Schwellenwerte pro Sensor, die den Wert bei
-  Unter-/Überschreitung farblich hervorheben
-- Klick auf einen Wert öffnet den "Mehr Informationen"-Dialog der Entität
+- Min/Max-Schwellenwerte pro Sensor (im Editor direkt neben dem jeweiligen
+  Dropdown), die den Wert bei Über-/Unterschreitung farblich hervorheben
+- **Automatische Pflegehinweise**: sobald ein Wert außerhalb von Min/Max
+  liegt, erscheint unter der Karte eine konkrete Handlungsempfehlung
+  (z. B. "Erde ist zu trocken – gieße die Pflanze zeitnah.",
+  "Zu wenig Licht – näher ans Fenster stellen."). Sind alle Werte in
+  Ordnung, zeigt die Karte das ebenfalls an. Die Batterie bekommt automatisch
+  einen sinnvollen Standard-Grenzwert (20 %), auch ohne eigene Angabe.
+- Hinweise lassen sich im Editor über einen Schalter komplett abschalten
+- Klick auf einen Wert oder Hinweis öffnet den "Mehr Informationen"-Dialog
+  der zugehörigen Entität
 
 ## Installation über HACS
 
@@ -74,6 +82,7 @@ temperature_max: 30
 illuminance_entity: sensor.monstera_licht
 conductivity_entity: sensor.monstera_leitfaehigkeit
 battery_entity: sensor.monstera_batterie
+show_advice: true
 ```
 
 Nur die Felder eintragen, die du wirklich brauchst – nicht konfigurierte
@@ -90,9 +99,12 @@ Sensoren werden einfach nicht angezeigt.
 | `humidity_entity`     | Luftfeuchtigkeit (%)|
 | `battery_entity`      | Batterie (%)        |
 
-Für `moisture`, `temperature`, `illuminance` und `conductivity` können
-zusätzlich `_min` und `_max` gesetzt werden, um den Wert bei
-Grenzwertüberschreitung rot hervorzuheben.
+Für `moisture`, `temperature`, `illuminance`, `conductivity` und `humidity`
+können zusätzlich `_min` und `_max` gesetzt werden, um den Wert bei
+Grenzwertüberschreitung rot hervorzuheben **und** einen passenden
+Pflegehinweis anzuzeigen. `battery` bekommt automatisch `min: 20`, falls
+nichts anderes angegeben ist. Mit `show_advice: false` lässt sich der
+gesamte Hinweisbereich abschalten.
 
 ## Lizenz
 
