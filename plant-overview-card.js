@@ -141,30 +141,56 @@ class PlantOverviewCard extends HTMLElement {
           <div class="poc-title"></div>
           <div class="poc-list"></div>
           <style>
-            ha-card { padding: 16px; }
-            .poc-title { font-size: 1.2em; font-weight: 500; margin-bottom: 8px; }
-            .poc-list { display: flex; flex-direction: column; gap: 6px; }
+            @import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560&family=Manrope:wght@500;700;800&display=swap");
+
+            ha-card {
+              --poc-surface-2: #eef3e8; --poc-text: #16211a; --poc-text-2: #647566;
+              --poc-accent-1: #2f8f5c; --poc-accent-soft: #e2f1e6;
+              --poc-warning: #d98a2b; --poc-warning-soft: #fbeedd;
+              --poc-track: #e5ecdf;
+              display: block;
+              padding: 20px;
+              font-family: "Manrope", system-ui, sans-serif;
+              color: var(--poc-text);
+              overflow: hidden;
+            }
+            ha-card.poc-dark {
+              --poc-surface-2: #1c2721; --poc-text: #edf3ec; --poc-text-2: #93a696;
+              --poc-accent-1: #74cf9d; --poc-accent-soft: #1e3428;
+              --poc-warning: #f0a75c; --poc-warning-soft: #3a2c18;
+              --poc-track: #263129;
+            }
+            .poc-title {
+              font-family: "Fraunces", serif; font-weight: 560; font-size: 1.2rem;
+              margin-bottom: 12px; letter-spacing: -0.01em;
+            }
+            .poc-list { display: flex; flex-direction: column; gap: 8px; }
             .poc-row {
               display: flex; align-items: center; gap: 12px;
-              padding: 10px; border-radius: 8px;
-              background: var(--secondary-background-color, rgba(0,0,0,0.04));
+              padding: 12px 14px; border-radius: 14px;
+              background: var(--poc-surface-2);
               cursor: pointer;
             }
             .poc-dot {
               width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
-              background: var(--success-color, #4caf50);
+              background: var(--poc-accent-1);
             }
-            .poc-dot.warning { background: var(--warning-color, #ff9800); }
-            .poc-dot.neutral { background: var(--disabled-text-color, #9e9e9e); }
+            .poc-dot.warning { background: var(--poc-warning); }
+            .poc-dot.neutral { background: var(--poc-text-2); opacity: 0.5; }
             .poc-name-wrap { display: flex; flex-direction: column; flex: 1; min-width: 0; }
-            .poc-name { font-weight: 500; }
-            .poc-status { font-size: 0.8em; color: var(--secondary-text-color); }
-            .poc-empty { color: var(--secondary-text-color); }
+            .poc-name { font-weight: 800; font-size: 0.92rem; }
+            .poc-status { font-size: 0.78rem; color: var(--poc-text-2); font-weight: 600; }
+            .poc-empty { color: var(--poc-text-2); font-size: 0.88rem; }
+            .poc-row ha-icon { color: var(--poc-text-2); --mdc-icon-size: 18px; }
           </style>
         </ha-card>
       `;
       this.content = this.querySelector(".poc-list");
+      this._cardEl = this.querySelector("ha-card");
     }
+
+    const isDark = !!(this._hass.themes && this._hass.themes.darkMode);
+    this._cardEl.classList.toggle("poc-dark", isDark);
 
     this.querySelector(".poc-title").textContent = this._config.title || t.title;
 

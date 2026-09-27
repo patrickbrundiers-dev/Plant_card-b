@@ -11,20 +11,56 @@
  * https://github.com/patrickbrundiers-dev/Plant_card-b
  */
 
-const CARD_VERSION = "2.0.0";
+const CARD_VERSION = "2.1.0";
 
 const SENSOR_DEFS = [
-  { key: "moisture", icon: "mdi:water-percent", unit: "%" },
-  { key: "temperature", icon: "mdi:thermometer", unit: "°C" },
-  { key: "illuminance", icon: "mdi:white-balance-sunny", unit: "lx" },
-  { key: "conductivity", icon: "mdi:flower-outline", unit: "µS/cm" },
-  { key: "humidity", icon: "mdi:water", unit: "%" },
-  { key: "battery", icon: "mdi:battery", unit: "%" },
+  { key: "moisture", unit: "%" },
+  { key: "temperature", unit: "°C" },
+  { key: "illuminance", unit: "lx" },
+  { key: "conductivity", unit: "µS/cm" },
+  { key: "humidity", unit: "%" },
+  { key: "battery", unit: "%" },
 ];
 
 const DEFAULT_BATTERY_MIN = 20;
 const HISTORY_LOOKBACK_MS = 6 * 60 * 60 * 1000; // 6h window used to seed the debounce timer
-const SPARKLINE_TTL_MS = 5 * 60 * 1000; // re-fetch history at most every 5 minutes
+
+// ---------------------------------------------------------------------------
+// Icons: plain line-icon paths (24x24 viewBox), used instead of mdi icons so
+// the card keeps a consistent, single-weight look independent of the
+// installed Material icon set.
+// ---------------------------------------------------------------------------
+const ICON_PATHS = {
+  moisture: '<path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11Z"/>',
+  temperature: '<path d="M10 14.76V5a2 2 0 1 1 4 0v9.76a4 4 0 1 1-4 0Z"/>',
+  illuminance:
+    '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4 12H2M22 12h-2M5 5l1.4 1.4M17.6 17.6 19 19M19 5l-1.4 1.4M6.4 17.6 5 19"/>',
+  conductivity: '<path d="M9 3h6M10 3v5.5L4.6 18a2 2 0 0 0 1.7 3h11.4a2 2 0 0 0 1.7-3L14 8.5V3"/>',
+  humidity: '<path d="M6 18.5a4 4 0 1 1 .9-7.9A5 5 0 0 1 17 9a3.5 3.5 0 0 1-.5 7H6Z"/>',
+  battery: '<rect x="3" y="8" width="15" height="8" rx="2"/><path d="M18 10.5h1.5a1 1 0 0 1 1 1v1a1 1 0 0 1-1 1H18"/>',
+  watering_can: '<path d="M4 13h9a4 4 0 0 1 0 8H8"/><path d="M2 13c0-3 2-8 6-8s5 3 5 5"/>',
+  check: '<path d="M5 13l4 4L19 7"/>',
+  alert: '<path d="M12 9v4M12 17h.01M10.3 3.9 2.7 17a2 2 0 0 0 1.7 3h15.2a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/>',
+  leaf: '<path d="M12 21c-3.5-2-6-5.2-6-9a6 6 0 0 1 12 0c0 3.8-2.5 7-6 9Z"/><path d="M12 21V9"/>',
+};
+
+function svgIcon(key, extra = "") {
+  const inner = ICON_PATHS[key] || "";
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" ${extra}>${inner}</svg>`;
+}
+
+let fontsInjected = false;
+function ensurePlantCardFonts() {
+  if (fontsInjected || typeof document === "undefined") return;
+  fontsInjected = true;
+  if (document.getElementById("psc-font-link")) return;
+  const link = document.createElement("link");
+  link.id = "psc-font-link";
+  link.rel = "stylesheet";
+  link.href =
+    "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,450;9..144,560;9..144,650&family=Manrope:wght@400;500;600;700;800&display=swap";
+  document.head.appendChild(link);
+}
 
 // ---------------------------------------------------------------------------
 // Translations
@@ -40,6 +76,9 @@ const STRINGS = {
     wateredYesterday: "Gestern gegossen",
     wateredDaysAgo: (n) => `Vor ${n} Tagen gegossen`,
     wateredNever: "Noch nicht gegossen",
+    healthOk: (pct) => `${pct} % im Sollbereich`,
+    healthProblems: (pct, n) => `${pct} % · ${n} Hinweis${n === 1 ? "" : "e"}`,
+    kicker: "Zimmerpflanze",
     labels: {
       moisture: "Feuchtigkeit",
       temperature: "Temperatur",
@@ -71,7 +110,7 @@ const STRINGS = {
       min: "Min",
       max: "Max",
       showAdvice: "Pflegehinweise anzeigen",
-      showSparkline: "24h-Verlauf (Sparkline) anzeigen",
+      showSparkline: "Bereichsanzeige (Position zwischen Min/Max) anzeigen",
       speciesPreset: "Pflanzenart-Vorlage",
       speciesPresetHint: "Füllt die Min/Max-Felder mit typischen Richtwerten – danach nach Bedarf anpassen.",
       speciesPresetNone: "Keine Vorlage",
@@ -92,6 +131,9 @@ const STRINGS = {
     wateredYesterday: "Watered yesterday",
     wateredDaysAgo: (n) => `Watered ${n} days ago`,
     wateredNever: "Not watered yet",
+    healthOk: (pct) => `${pct}% within range`,
+    healthProblems: (pct, n) => `${pct}% · ${n} issue${n === 1 ? "" : "s"}`,
+    kicker: "Houseplant",
     labels: {
       moisture: "Moisture",
       temperature: "Temperature",
@@ -123,7 +165,7 @@ const STRINGS = {
       min: "Min",
       max: "Max",
       showAdvice: "Show care advice",
-      showSparkline: "Show 24h sparkline",
+      showSparkline: "Show range indicator (position between min/max)",
       speciesPreset: "Species preset",
       speciesPresetHint: "Fills in typical Min/Max ranges – adjust afterwards as needed.",
       speciesPresetNone: "No preset",
@@ -174,7 +216,6 @@ class PlantSensorCard extends HTMLElement {
     super();
     this._badSince = {}; // per-entity/direction timestamp of when a breach was first observed
     this._seededKeys = new Set(); // avoids re-running the history seed for the same key
-    this._sparklineCache = {}; // entityId -> { ts, points }
   }
 
   setConfig(config) {
@@ -264,7 +305,7 @@ class PlantSensorCard extends HTMLElement {
             this._seedBadSince(entityId, key, (v) => v < Number(minAttr));
           }
           if (now - this._badSince[key] >= delayMs) {
-            advice.push({ icon: "mdi:alert-circle-outline", severity: "warning", text: adviceLow, entityId });
+            advice.push({ text: adviceLow, entityId });
           }
         } else {
           delete this._badSince[key];
@@ -281,7 +322,7 @@ class PlantSensorCard extends HTMLElement {
             this._seedBadSince(entityId, key, (v) => v > Number(maxAttr));
           }
           if (now - this._badSince[key] >= delayMs) {
-            advice.push({ icon: "mdi:alert-circle-outline", severity: "warning", text: adviceHigh, entityId });
+            advice.push({ text: adviceHigh, entityId });
           }
         } else {
           delete this._badSince[key];
@@ -317,59 +358,49 @@ class PlantSensorCard extends HTMLElement {
   }
 
   // -------------------------------------------------------------------
-  // Sparkline (24h history) per sensor, fetched lazily and cached.
+  // Overall "health": share of configured sensors currently within their
+  // min/max range. Drives the ring in the header.
   // -------------------------------------------------------------------
-  async _loadSparklinePoints(entityId) {
-    const cached = this._sparklineCache[entityId];
-    const now = Date.now();
-    if (cached && now - cached.ts < SPARKLINE_TTL_MS) return cached.points;
+  _computeHealth() {
+    let total = 0;
+    let ok = 0;
 
-    if (!this._hass) return [];
-    try {
-      const start = new Date(now - 24 * 60 * 60 * 1000).toISOString();
-      const result = await this._hass.callApi("GET", `history/period/${start}?filter_entity_id=${entityId}`);
-      const series = (result && result[0]) || [];
-      const points = series
-        .map((p) => ({ t: new Date(p.last_changed).getTime(), v: Number(p.state) }))
-        .filter((p) => Number.isFinite(p.v));
-      this._sparklineCache[entityId] = { ts: now, points };
-      return points;
-    } catch (e) {
-      return [];
-    }
-  }
+    SENSOR_DEFS.forEach((def) => {
+      const entityId = this._config[`${def.key}_entity`];
+      if (!entityId) return;
+      const stateObj = this._stateOf(entityId);
+      if (!stateObj || stateObj.state === "unknown" || stateObj.state === "unavailable") return;
+      const num = Number(stateObj.state);
+      if (!Number.isFinite(num)) return;
 
-  _sparklineSvg(points) {
-    if (!points || points.length < 2) return "";
-    const width = 100;
-    const height = 28;
-    const values = points.map((p) => p.v);
-    const min = Math.min(...values);
-    const max = Math.max(...values);
-    const span = max - min || 1;
-    const t0 = points[0].t;
-    const tSpan = points[points.length - 1].t - t0 || 1;
+      let min = this._config[`${def.key}_min`];
+      const max = this._config[`${def.key}_max`];
+      if (def.key === "battery" && (min === undefined || min === "")) min = DEFAULT_BATTERY_MIN;
 
-    const coords = points.map((p) => {
-      const x = ((p.t - t0) / tSpan) * width;
-      const y = height - ((p.v - min) / span) * height;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
+      const hasThreshold = (min !== undefined && min !== "") || (max !== undefined && max !== "");
+      if (!hasThreshold) return;
+
+      total += 1;
+      const breach =
+        (min !== undefined && min !== "" && num < Number(min)) ||
+        (max !== undefined && max !== "" && num > Number(max));
+      if (!breach) ok += 1;
     });
 
-    return `
-      <svg class="psc-spark" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
-        <polyline points="${coords.join(" ")}" fill="none" stroke="currentColor" stroke-width="1.5" vector-effect="non-scaling-stroke" />
-      </svg>
-    `;
+    if (total === 0) return null;
+    return { pct: Math.round((ok / total) * 100), total, ok };
   }
 
-  async _renderSparkline(item, entityId) {
-    const holder = item.querySelector(".psc-spark-holder");
-    if (!holder) return;
-    const points = await this._loadSparklinePoints(entityId);
-    // Item might have been removed/replaced by a re-render while we were fetching.
-    if (!this.isConnected || !holder.isConnected) return;
-    holder.innerHTML = this._sparklineSvg(points);
+  // Position (0-100) of the current value between min and max, for the
+  // little range indicator under each sensor row. Returns null when both
+  // bounds aren't set, since a single-sided threshold has no fixed scale.
+  _rangePosition(value, min, max) {
+    if (min === undefined || min === "" || max === undefined || max === "") return null;
+    const lo = Number(min);
+    const hi = Number(max);
+    if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) return null;
+    const pct = ((value - lo) / (hi - lo)) * 100;
+    return Math.max(0, Math.min(100, pct));
   }
 
   // -------------------------------------------------------------------
@@ -401,10 +432,10 @@ class PlantSensorCard extends HTMLElement {
 
     wrap.innerHTML = `
       <span class="psc-watered-label">${label}</span>
-      <mwc-button dense id="psc-water-btn">
-        <ha-icon icon="mdi:watering-can" slot="icon"></ha-icon>
-        ${t.wateredNow}
-      </mwc-button>
+      <button class="psc-btn" id="psc-water-btn">
+        ${svgIcon("watering_can")}
+        <span>${t.wateredNow}</span>
+      </button>
     `;
 
     wrap.querySelector("#psc-water-btn").addEventListener("click", () => {
@@ -417,111 +448,216 @@ class PlantSensorCard extends HTMLElement {
 
   _render() {
     if (!this._config) return;
+    ensurePlantCardFonts();
 
     if (!this.content) {
       this.innerHTML = `
         <ha-card>
           <div class="psc-card">
-            <div class="psc-header">
-              <img class="psc-image" style="display:none;" />
-              <div class="psc-title-wrap">
+            <div class="psc-head">
+              <div class="psc-ring-wrap">
+                <div class="psc-ring">
+                  <div class="psc-ring-inner">
+                    <img class="psc-image" style="display:none;" />
+                    <span class="psc-leaf">${svgIcon("leaf")}</span>
+                  </div>
+                </div>
+              </div>
+              <div class="psc-head-text">
+                <span class="psc-kicker"></span>
                 <div class="psc-title"></div>
                 <div class="psc-species"></div>
+                <div class="psc-status"></div>
               </div>
             </div>
-            <div class="psc-grid"></div>
+            <div class="psc-metrics"></div>
+            <div class="psc-divider" style="display:none;"></div>
             <div class="psc-watered"></div>
             <div class="psc-advice"></div>
           </div>
           <style>
-            ha-card { padding: 16px; }
-            .psc-card { display: flex; flex-direction: column; gap: 12px; }
-            .psc-header { display: flex; align-items: center; gap: 12px; }
-            .psc-image {
-              width: 56px; height: 56px; border-radius: 50%;
-              object-fit: cover; flex-shrink: 0;
+            @import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,450;9..144,560;9..144,650&family=Manrope:wght@400;500;600;700;800&display=swap");
+
+            ha-card {
+              --psc-bg: #f2f6ee; --psc-surface: #ffffff; --psc-surface-2: #eef3e8;
+              --psc-text: #16211a; --psc-text-2: #647566; --psc-border: #e1e9da;
+              --psc-accent-1: #2f8f5c; --psc-accent-2: #a9d977; --psc-accent-soft: #e2f1e6;
+              --psc-warning: #d98a2b; --psc-warning-soft: #fbeedd; --psc-danger: #c85a45;
+              --psc-track: #e5ecdf;
+              display: block;
+              padding: 20px;
+              font-family: "Manrope", system-ui, sans-serif;
+              color: var(--psc-text);
+              background: var(--psc-surface);
+              overflow: hidden;
             }
-            .psc-title { font-size: 1.2em; font-weight: 500; }
-            .psc-species { font-size: 0.9em; color: var(--secondary-text-color); }
-            .psc-grid {
-              display: grid;
-              grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-              gap: 12px;
+            ha-card.psc-dark {
+              --psc-bg: #0e1512; --psc-surface: #162019; --psc-surface-2: #1c2721;
+              --psc-text: #edf3ec; --psc-text-2: #93a696; --psc-border: #263129;
+              --psc-accent-1: #74cf9d; --psc-accent-2: #c3ea7c; --psc-accent-soft: #1e3428;
+              --psc-warning: #f0a75c; --psc-warning-soft: #3a2c18; --psc-danger: #ef7a68;
+              --psc-track: #263129;
             }
-            .psc-item {
-              display: flex; flex-direction: column; gap: 6px;
-              padding: 8px; border-radius: 8px;
-              background: var(--secondary-background-color, rgba(0,0,0,0.04));
-              cursor: pointer;
+
+            .psc-card { display: flex; flex-direction: column; gap: 18px; }
+
+            .psc-head { display: flex; align-items: center; gap: 14px; }
+            .psc-ring-wrap { position: relative; width: 60px; height: 60px; flex-shrink: 0; }
+            .psc-ring {
+              --pct: 0; --ring-color: var(--psc-accent-2);
+              width: 100%; height: 100%; border-radius: 50%; padding: 4px;
+              background: conic-gradient(from -90deg, var(--ring-color) calc(var(--pct) * 1%), var(--psc-track) 0);
             }
-            .psc-item-main { display: flex; align-items: center; gap: 8px; }
-            .psc-item ha-icon {
-              --mdc-icon-size: 22px;
-              color: var(--state-icon-color, var(--paper-item-icon-color));
+            .psc-ring.warning { --ring-color: var(--psc-warning); }
+            .psc-ring.neutral { background: var(--psc-track); }
+            .psc-ring-inner {
+              width: 100%; height: 100%; border-radius: 50%;
+              background: var(--psc-surface);
+              display: flex; align-items: center; justify-content: center;
+              overflow: hidden;
             }
-            .psc-item.problem ha-icon { color: var(--error-color, #db4437); }
-            .psc-value-wrap { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
-            .psc-value { font-weight: 500; }
-            .psc-label {
-              font-size: 0.75em; color: var(--secondary-text-color);
+            .psc-ring-inner img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+            .psc-leaf { width: 28px; height: 28px; color: var(--psc-accent-1); display: flex; }
+            .psc-leaf svg { width: 100%; height: 100%; }
+
+            .psc-head-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+            .psc-kicker {
+              font-size: 0.64rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase;
+              color: var(--psc-text-2);
+            }
+            .psc-kicker:empty { display: none; }
+            .psc-title {
+              font-family: "Fraunces", serif; font-weight: 560; font-size: 1.3rem;
+              line-height: 1.1; letter-spacing: -0.01em;
+            }
+            .psc-species { font-size: 0.78rem; color: var(--psc-text-2); font-style: italic; }
+            .psc-species:empty { display: none; }
+            .psc-status {
+              display: flex; align-items: center; gap: 6px;
+              font-size: 0.74rem; font-weight: 700; color: var(--psc-accent-1);
+              margin-top: 2px;
+            }
+            .psc-status.warning { color: var(--psc-warning); }
+            .psc-status:empty { display: none; }
+            .psc-status .psc-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+            .psc-metrics { display: flex; flex-direction: column; gap: 14px; }
+            .psc-metric-row { display: flex; align-items: center; gap: 12px; cursor: pointer; }
+            .psc-metric-icon {
+              width: 32px; height: 32px; border-radius: 11px; flex-shrink: 0;
+              background: var(--psc-accent-soft); color: var(--psc-accent-1);
+              display: flex; align-items: center; justify-content: center;
+            }
+            .psc-metric-icon.warning { background: var(--psc-warning-soft); color: var(--psc-warning); }
+            .psc-metric-icon svg { width: 17px; height: 17px; }
+            .psc-metric-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+            .psc-metric-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+            .psc-metric-label {
+              font-size: 0.74rem; color: var(--psc-text-2); font-weight: 600;
               white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
-            .psc-spark-holder { color: var(--primary-color); height: 22px; }
-            .psc-spark { width: 100%; height: 22px; display: block; }
-
-            .psc-watered {
-              display: flex; align-items: center; justify-content: space-between;
-              gap: 8px; font-size: 0.9em; color: var(--secondary-text-color);
+            .psc-metric-value { font-weight: 800; font-size: 0.86rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+            .psc-metric-value.warning { color: var(--psc-warning); }
+            .psc-metric-value.danger { color: var(--psc-danger); }
+            .psc-metric-track { position: relative; height: 4px; border-radius: 999px; background: var(--psc-track); }
+            .psc-metric-dot {
+              position: absolute; top: 50%; width: 10px; height: 10px; border-radius: 50%;
+              background: var(--psc-accent-1); box-shadow: 0 0 0 3px var(--psc-surface);
+              transform: translate(-50%, -50%);
             }
-            .psc-watered mwc-button { --mdc-theme-primary: var(--primary-color); }
+            .psc-metric-dot.warning { background: var(--psc-warning); }
+            .psc-metric-dot.danger { background: var(--psc-danger); }
+            .psc-empty { color: var(--psc-text-2); font-size: 0.85rem; }
+
+            .psc-divider { height: 1px; background: var(--psc-border); }
+
+            .psc-watered { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+            .psc-watered:empty { display: none; }
+            .psc-watered-label { font-size: 0.78rem; color: var(--psc-text-2); line-height: 1.35; }
+            .psc-btn {
+              display: inline-flex; align-items: center; gap: 7px;
+              background: linear-gradient(135deg, var(--psc-accent-1), var(--psc-accent-2));
+              color: #0c1710; border: none; border-radius: 999px; padding: 9px 15px;
+              font-family: inherit; font-weight: 800; font-size: 0.76rem;
+              white-space: nowrap; cursor: pointer;
+              box-shadow: 0 6px 16px -6px color-mix(in srgb, var(--psc-accent-1) 60%, transparent);
+            }
+            .psc-btn svg { width: 15px; height: 15px; }
 
             .psc-advice { display: flex; flex-direction: column; gap: 8px; }
+            .psc-advice:empty { display: none; }
             .psc-advice-title {
-              font-size: 0.8em; font-weight: 600; text-transform: uppercase;
-              letter-spacing: 0.03em; color: var(--secondary-text-color);
-              margin-top: 4px;
+              font-size: 0.66rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase;
+              color: var(--psc-text-2);
             }
             .psc-advice-item {
-              display: flex; align-items: flex-start; gap: 10px;
-              padding: 8px 10px; border-radius: 8px;
-              background: var(--secondary-background-color, rgba(0,0,0,0.04));
-              border-left: 3px solid var(--warning-color, #ff9800);
-              font-size: 0.88em; line-height: 1.35;
+              display: flex; align-items: center; gap: 10px;
+              background: var(--psc-warning-soft);
+              border-radius: 14px; padding: 10px 12px;
+              font-size: 0.82rem; line-height: 1.35; font-weight: 500;
               cursor: pointer;
             }
-            .psc-advice-item.ok { border-left-color: var(--success-color, #4caf50); cursor: default; }
-            .psc-advice-item ha-icon {
-              --mdc-icon-size: 20px; flex-shrink: 0; margin-top: 1px;
-              color: var(--warning-color, #ff9800);
+            .psc-advice-item.ok { background: var(--psc-accent-soft); cursor: default; }
+            .psc-advice-chip-icon {
+              width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+              background: var(--psc-warning); color: #241705;
+              display: flex; align-items: center; justify-content: center;
             }
-            .psc-advice-item.ok ha-icon { color: var(--success-color, #4caf50); }
+            .psc-advice-chip-icon svg { width: 12px; height: 12px; }
+            .psc-advice-item.ok .psc-advice-chip-icon { background: var(--psc-accent-1); color: #08150d; }
           </style>
         </ha-card>
       `;
       this.content = this.querySelector(".psc-card");
+      this._cardEl = this.querySelector("ha-card");
     }
 
     const t = this._t;
+    const isDark = !!(this._hass && this._hass.themes && this._hass.themes.darkMode);
+    this._cardEl.classList.toggle("psc-dark", isDark);
+
     const name = this._config.name || t.defaultName;
     const species = this._config.species || "";
     const image = this._config.image || "";
 
-    const titleEl = this.querySelector(".psc-title");
-    const speciesEl = this.querySelector(".psc-species");
+    this.querySelector(".psc-title").textContent = name;
+    this.querySelector(".psc-species").textContent = species;
+    this.querySelector(".psc-kicker").textContent = t.kicker;
+
     const imgEl = this.querySelector(".psc-image");
-    titleEl.textContent = name;
-    speciesEl.textContent = species;
+    const leafEl = this.querySelector(".psc-leaf");
     if (image) {
       imgEl.src = image;
       imgEl.style.display = "";
+      leafEl.style.display = "none";
     } else {
       imgEl.style.display = "none";
+      leafEl.style.display = "";
     }
 
-    const grid = this.querySelector(".psc-grid");
-    grid.innerHTML = "";
+    // Health ring + status line
+    const ringEl = this.querySelector(".psc-ring");
+    const statusEl = this.querySelector(".psc-status");
+    const health = this._computeHealth();
+    if (!health) {
+      ringEl.className = "psc-ring neutral";
+      statusEl.className = "psc-status";
+      statusEl.innerHTML = "";
+    } else {
+      const isWarning = health.pct < 100;
+      ringEl.className = "psc-ring" + (isWarning ? " warning" : "");
+      ringEl.style.setProperty("--pct", health.pct);
+      const problems = health.total - health.ok;
+      statusEl.className = "psc-status" + (isWarning ? " warning" : "");
+      statusEl.innerHTML = `<span class="psc-dot"></span>${
+        problems > 0 ? t.healthProblems(health.pct, problems) : t.healthOk(health.pct)
+      }`;
+    }
 
-    const showSparkline = this._config.show_sparkline !== false;
+    // Sensor rows
+    const showRange = this._config.show_sparkline !== false;
+    const metrics = this.querySelector(".psc-metrics");
+    metrics.innerHTML = "";
 
     SENSOR_DEFS.forEach((def) => {
       const entityId = this._config[`${def.key}_entity`];
@@ -531,43 +667,58 @@ class PlantSensorCard extends HTMLElement {
       const value = this._formatValue(stateObj, def.unit);
       const label = t.labels[def.key];
 
-      const minAttr = this._config[`${def.key}_min`];
+      let minAttr = this._config[`${def.key}_min`];
       const maxAttr = this._config[`${def.key}_max`];
-      let problem = false;
+      if (def.key === "battery" && (minAttr === undefined || minAttr === "")) {
+        minAttr = DEFAULT_BATTERY_MIN;
+      }
+      let severity = "";
       if (stateObj && stateObj.state !== "unknown" && stateObj.state !== "unavailable") {
         const num = Number(stateObj.state);
         if (Number.isFinite(num)) {
-          if (minAttr !== undefined && minAttr !== "" && num < Number(minAttr)) problem = true;
-          if (maxAttr !== undefined && maxAttr !== "" && num > Number(maxAttr)) problem = true;
+          if (minAttr !== undefined && minAttr !== "" && num < Number(minAttr)) severity = "warning";
+          if (maxAttr !== undefined && maxAttr !== "" && num > Number(maxAttr)) severity = "warning";
         }
       }
 
-      const item = document.createElement("div");
-      item.className = "psc-item" + (problem ? " problem" : "");
-      item.innerHTML = `
-        <div class="psc-item-main">
-          <ha-icon icon="${def.icon}"></ha-icon>
-          <div class="psc-value-wrap">
-            <span class="psc-value">${value}</span>
-            <span class="psc-label">${label}</span>
-          </div>
-        </div>
-        ${showSparkline ? `<div class="psc-spark-holder"></div>` : ""}
-      `;
-      item.addEventListener("click", () => this._fireMoreInfo(entityId));
-      grid.appendChild(item);
-
-      if (showSparkline) {
-        this._renderSparkline(item, entityId);
+      let trackHtml = "";
+      if (showRange && stateObj) {
+        const num = Number(stateObj.state);
+        const pos = Number.isFinite(num) ? this._rangePosition(num, minAttr, maxAttr) : null;
+        if (pos !== null) {
+          trackHtml = `
+            <div class="psc-metric-track">
+              <div class="psc-metric-dot ${severity}" style="left:${pos}%"></div>
+            </div>
+          `;
+        }
       }
+
+      const row = document.createElement("div");
+      row.className = "psc-metric-row";
+      row.innerHTML = `
+        <div class="psc-metric-icon ${severity}">${svgIcon(def.key)}</div>
+        <div class="psc-metric-main">
+          <div class="psc-metric-top">
+            <span class="psc-metric-label">${label}</span>
+            <span class="psc-metric-value ${severity}">${value}</span>
+          </div>
+          ${trackHtml}
+        </div>
+      `;
+      row.addEventListener("click", () => this._fireMoreInfo(entityId));
+      metrics.appendChild(row);
     });
 
-    if (!grid.children.length) {
-      grid.innerHTML = `<div class="psc-label">${t.noSensors}</div>`;
+    if (!metrics.children.length) {
+      metrics.innerHTML = `<div class="psc-empty">${t.noSensors}</div>`;
     }
 
     this._renderWatered();
     this._renderAdvice();
+
+    const hasWatered = !!this._config.watered_entity;
+    this.querySelector(".psc-divider").style.display = hasWatered ? "" : "none";
   }
 
   _renderAdvice() {
@@ -593,7 +744,7 @@ class PlantSensorCard extends HTMLElement {
     if (advice.length === 0) {
       itemsHtml = `
         <div class="psc-advice-item ok">
-          <ha-icon icon="mdi:check-circle-outline"></ha-icon>
+          <span class="psc-advice-chip-icon">${svgIcon("check", 'stroke-width="2.5"')}</span>
           <span>${t.careOk}</span>
         </div>
       `;
@@ -602,7 +753,7 @@ class PlantSensorCard extends HTMLElement {
         .map(
           (a) => `
         <div class="psc-advice-item" data-entity="${a.entityId}">
-          <ha-icon icon="${a.icon}"></ha-icon>
+          <span class="psc-advice-chip-icon">${svgIcon("alert", 'stroke-width="2.5"')}</span>
           <span>${a.text}</span>
         </div>
       `
@@ -852,7 +1003,7 @@ window.customCards = window.customCards || [];
 window.customCards.push({
   type: "plant-sensor-card",
   name: "Plant Sensor Card",
-  description: "Zeigt Pflanzensensor-Werte, 24h-Verlauf und automatische Pflegehinweise; Sensoren werden im Editor per Dropdown ausgewählt.",
+  description: "Zeigt Pflanzensensor-Werte mit Gesundheits-Ring und automatischen Pflegehinweisen; Sensoren werden im Editor per Dropdown ausgewählt.",
   preview: true,
   documentationURL: "https://github.com/patrickbrundiers-dev/Plant_card-b",
 });

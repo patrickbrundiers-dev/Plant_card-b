@@ -24,6 +24,9 @@ gerade geöffnet ist.
 ## Funktionen
 
 **Plant Sensor Card**
+- Modernes Design mit Gesundheits-Ring (Anteil der Sensoren im Sollbereich),
+  Positions-Punkt je Sensor zwischen Min und Max, und einer Serifen-Headline
+  (Fraunces) kombiniert mit klarer Groteska (Manrope) für Werte
 - Dropdown-Auswahl für jeden Sensor-Typ (kein manuelles Eintippen von Entity-IDs)
 - Funktioniert mit **jedem** Sensor, egal welche Integration dahintersteckt
   (Mi Flora / BLE, Zigbee, ESPHome, FYTA, Xiaomi, ...)
@@ -33,8 +36,8 @@ gerade geöffnet ist.
   Richtwerten vorausgefüllt – danach nach Bedarf anpassen
 - Min/Max-Schwellenwerte pro Sensor, die den Wert bei Über-/Unterschreitung
   farblich hervorheben
-- **24h-Sparkline** je Sensor, damit man den Trend sieht statt nur den
-  aktuellen Wert (lässt sich abschalten)
+- **Bereichsanzeige** je Sensor: ein Punkt zeigt, wo der aktuelle Wert
+  zwischen Min und Max liegt (lässt sich abschalten)
 - **Automatische Pflegehinweise**: sobald ein Wert außerhalb von Min/Max
   liegt, erscheint unter der Karte eine konkrete Handlungsempfehlung
   (z. B. "Erde ist zu trocken – gieße die Pflanze zeitnah.",
