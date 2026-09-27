@@ -11,7 +11,7 @@
  * https://github.com/patrickbrundiers-dev/Plant_card-b
  */
 
-const CARD_VERSION = "1.0.0";
+const CARD_VERSION = "1.0.1";
 
 const SENSOR_DEFS = [
   { key: "moisture", icon: "mdi:water-percent", unit: "%" },
@@ -278,15 +278,36 @@ class PlantOverviewCardEditor extends HTMLElement {
 
   _render() {
     if (!this._hass) return;
-    const t = this._t;
 
-    if (!this.content) {
-      this.innerHTML = `<div class="poc-editor"></div>`;
-      this.content = this.querySelector(".poc-editor");
+    // Same issue as the single-plant card's editor: Home Assistant calls
+    // setConfig()/the hass setter again after every "config-changed" event,
+    // i.e. on every keystroke or entity-picker selection. Rebuilding the
+    // whole innerHTML then would destroy and recreate every live
+    // ha-entity-picker/ha-textfield mid-interaction, causing flicker and
+    // aborted selections. So the DOM is only rebuilt when its shape
+    // actually changes (plant added/removed, language switch, first
+    // render); otherwise only values are updated in place.
+    const plants = (this._config || {}).plants || [];
+    if (
+      !this.content ||
+      this._builtLang !== getLang(this._hass) ||
+      this._builtPlantCount !== plants.length
+    ) {
+      this._buildStructure();
     }
+    this._updateValues();
+  }
+
+  _buildStructure() {
+    const t = this._t;
+    this._builtLang = getLang(this._hass);
+
+    this.innerHTML = `<div class="poc-editor"></div>`;
+    this.content = this.querySelector(".poc-editor");
 
     const cfg = this._config || {};
     const plants = cfg.plants || [];
+    this._builtPlantCount = plants.length;
 
     const plantBlocks = plants
       .map((plant, index) => {
@@ -334,8 +355,9 @@ class PlantOverviewCardEditor extends HTMLElement {
       <mwc-button id="poc-add-plant" outlined>${t.editor.addPlant}</mwc-button>
     `;
 
+    // Event listeners are wired up exactly once per structure build. Values
+    // are (re)applied separately in _updateValues() on every render pass.
     const titleField = this.content.querySelector("#poc-title-field");
-    titleField.value = cfg.title || "";
     titleField.addEventListener("input", (e) => {
       this._config = { ...this._config, title: e.target.value };
       this._emit();
@@ -344,8 +366,6 @@ class PlantOverviewCardEditor extends HTMLElement {
     this.content.querySelectorAll("ha-entity-picker[data-plant]").forEach((picker) => {
       const index = Number(picker.dataset.plant);
       const key = picker.dataset.key;
-      picker.hass = this._hass;
-      picker.value = plants[index]?.[key] || "";
       picker.addEventListener("value-changed", (ev) => {
         ev.stopPropagation();
         this._updatePlant(index, key, ev.detail.value);
@@ -355,8 +375,6 @@ class PlantOverviewCardEditor extends HTMLElement {
     this.content.querySelectorAll("ha-textfield[data-plant]").forEach((field) => {
       const index = Number(field.dataset.plant);
       const key = field.dataset.key;
-      const raw = plants[index]?.[key];
-      field.value = raw !== undefined ? String(raw) : "";
       field.addEventListener("input", (e) => {
         const val = e.target.value;
         const isNumeric = key.endsWith("_min") || key.endsWith("_max");
@@ -369,6 +387,40 @@ class PlantOverviewCardEditor extends HTMLElement {
     });
 
     this.content.querySelector("#poc-add-plant").addEventListener("click", () => this._addPlant());
+  }
+
+  // Applies the current config to the already-built DOM. Called on every
+  // setConfig()/hass update. Skips whichever field currently has focus, so
+  // a config-changed round-trip from the user's own edit doesn't fight
+  // their cursor or close an open entity-picker dropdown mid-pick.
+  _updateValues() {
+    const root = this.content;
+    if (!root) return;
+
+    const cfg = this._config || {};
+    const plants = cfg.plants || [];
+    const active = root.contains(document.activeElement) ? document.activeElement : null;
+
+    const titleField = root.querySelector("#poc-title-field");
+    if (titleField && titleField !== active && titleField.value !== (cfg.title || "")) {
+      titleField.value = cfg.title || "";
+    }
+
+    root.querySelectorAll("ha-entity-picker[data-plant]").forEach((picker) => {
+      const index = Number(picker.dataset.plant);
+      const key = picker.dataset.key;
+      picker.hass = this._hass;
+      if (picker !== active) picker.value = plants[index]?.[key] || "";
+    });
+
+    root.querySelectorAll("ha-textfield[data-plant]").forEach((field) => {
+      const index = Number(field.dataset.plant);
+      const key = field.dataset.key;
+      if (field === active) return;
+      const raw = plants[index]?.[key];
+      const val = raw !== undefined ? String(raw) : "";
+      if (field.value !== val) field.value = val;
+    });
   }
 }
 

@@ -14,7 +14,7 @@
  * (a GitHub Action then creates the matching GitHub Release automatically).
  */
 
-const CARD_VERSION = "2.1.0";
+const CARD_VERSION = "2.1.1";
 
 const SENSOR_DEFS = [
   { key: "moisture", unit: "%" },
@@ -823,22 +823,35 @@ class PlantSensorCardEditor extends HTMLElement {
       composed: true,
     });
     this.dispatchEvent(event);
-    this._render();
+    this._updateValues();
   }
 
   _render() {
     if (!this._hass) return;
-    const t = this._t;
 
-    if (!this.content) {
-      this.innerHTML = `<div class="psc-editor"></div>`;
-      this.content = this.querySelector(".psc-editor");
+    // IMPORTANT: Home Assistant calls setConfig()/the hass setter again
+    // after every "config-changed" event -- i.e. on every keystroke or
+    // dropdown selection made in this editor. Rebuilding the whole
+    // innerHTML on every one of those calls would destroy and recreate
+    // every ha-entity-picker/ha-textfield while the user is mid-interaction
+    // (dropdown open, cursor mid-word), which is exactly what caused the
+    // reported flickering and aborted selections. So the DOM structure is
+    // built once, and every later render only updates values in place.
+    if (!this.content || this._builtLang !== getLang(this._hass)) {
+      this._buildStructure();
     }
+    this._updateValues();
+  }
 
-    const cfg = this._config || {};
+  _buildStructure() {
+    const t = this._t;
+    this._builtLang = getLang(this._hass);
+
+    this.innerHTML = `<div class="psc-editor"></div>`;
+    this.content = this.querySelector(".psc-editor");
 
     const presetOptions = SPECIES_PRESETS.map(
-      (p) => `<option value="${p.id}" ${cfg.species_preset === p.id ? "selected" : ""}>${p.label}</option>`
+      (p) => `<option value="${p.id}">${p.label}</option>`
     ).join("");
 
     const sensorRows = SENSOR_DEFS.map((def) => {
@@ -934,21 +947,20 @@ class PlantSensorCardEditor extends HTMLElement {
       </div>
     `;
 
-    // Text fields
+    // Event listeners are wired up exactly once, here in _buildStructure().
+    // Actual values are applied separately in _updateValues() on every
+    // render pass, so typing into a field or picking an entity never
+    // triggers a rebuild of these elements.
     const nameField = this.content.querySelector("#psc-name");
-    nameField.value = cfg.name || "";
     nameField.addEventListener("input", (e) => this._valueChanged("name", e.target.value));
 
     const speciesField = this.content.querySelector("#psc-species");
-    speciesField.value = cfg.species || "";
     speciesField.addEventListener("input", (e) => this._valueChanged("species", e.target.value));
 
     const imageField = this.content.querySelector("#psc-image");
-    imageField.value = cfg.image || "";
     imageField.addEventListener("input", (e) => this._valueChanged("image", e.target.value));
 
     const delayField = this.content.querySelector("#psc-advice-delay");
-    delayField.value = cfg.advice_delay_minutes !== undefined ? String(cfg.advice_delay_minutes) : "";
     delayField.addEventListener("input", (e) => {
       const raw = e.target.value;
       this._valueChanged("advice_delay_minutes", raw === "" ? "" : Number(raw));
@@ -962,7 +974,6 @@ class PlantSensorCardEditor extends HTMLElement {
     // Min/max threshold fields
     this.content.querySelectorAll(".psc-threshold-row ha-textfield").forEach((field) => {
       const key = field.dataset.key;
-      field.value = cfg[key] !== undefined ? String(cfg[key]) : "";
       field.addEventListener("input", (e) => {
         const raw = e.target.value;
         this._valueChanged(key, raw === "" ? "" : Number(raw));
@@ -972,8 +983,6 @@ class PlantSensorCardEditor extends HTMLElement {
     // Entity pickers (sensors + watered helper)
     this.content.querySelectorAll("ha-entity-picker[data-key]").forEach((picker) => {
       const key = picker.dataset.key;
-      picker.hass = this._hass;
-      picker.value = cfg[key] || "";
       picker.addEventListener("value-changed", (ev) => {
         ev.stopPropagation();
         this._valueChanged(key, ev.detail.value);
@@ -981,8 +990,6 @@ class PlantSensorCardEditor extends HTMLElement {
     });
 
     const wateredPicker = this.content.querySelector("#psc-watered-entity");
-    wateredPicker.hass = this._hass;
-    wateredPicker.value = cfg.watered_entity || "";
     wateredPicker.addEventListener("value-changed", (ev) => {
       ev.stopPropagation();
       this._valueChanged("watered_entity", ev.detail.value);
@@ -990,12 +997,62 @@ class PlantSensorCardEditor extends HTMLElement {
 
     // Toggles
     const adviceSwitch = this.content.querySelector("#psc-show-advice");
-    adviceSwitch.checked = cfg.show_advice !== false;
     adviceSwitch.addEventListener("change", (e) => this._valueChanged("show_advice", e.target.checked));
 
     const sparklineSwitch = this.content.querySelector("#psc-show-sparkline");
-    sparklineSwitch.checked = cfg.show_sparkline !== false;
     sparklineSwitch.addEventListener("change", (e) => this._valueChanged("show_sparkline", e.target.checked));
+  }
+
+  // Applies the current config to the already-built DOM. Called on every
+  // setConfig()/hass update. Skips whichever field currently has focus, so
+  // a config-changed round-trip triggered by the user's own edit doesn't
+  // fight their cursor or close an open entity-picker dropdown mid-pick.
+  _updateValues() {
+    const cfg = this._config || {};
+    const root = this.content;
+    if (!root) return;
+
+    const active = root.contains(document.activeElement) ? document.activeElement : null;
+    const applyValue = (el, val) => {
+      if (!el || el === active) return;
+      if (el.value !== val) el.value = val;
+    };
+
+    applyValue(root.querySelector("#psc-name"), cfg.name || "");
+    applyValue(root.querySelector("#psc-species"), cfg.species || "");
+    applyValue(root.querySelector("#psc-image"), cfg.image || "");
+    applyValue(
+      root.querySelector("#psc-advice-delay"),
+      cfg.advice_delay_minutes !== undefined ? String(cfg.advice_delay_minutes) : ""
+    );
+
+    const presetSelect = root.querySelector("#psc-species-preset");
+    if (presetSelect && presetSelect !== active) {
+      presetSelect.value = cfg.species_preset || "";
+    }
+
+    root.querySelectorAll(".psc-threshold-row ha-textfield").forEach((field) => {
+      const key = field.dataset.key;
+      applyValue(field, cfg[key] !== undefined ? String(cfg[key]) : "");
+    });
+
+    root.querySelectorAll("ha-entity-picker[data-key]").forEach((picker) => {
+      const key = picker.dataset.key;
+      picker.hass = this._hass;
+      if (picker !== active) picker.value = cfg[key] || "";
+    });
+
+    const wateredPicker = root.querySelector("#psc-watered-entity");
+    if (wateredPicker) {
+      wateredPicker.hass = this._hass;
+      if (wateredPicker !== active) wateredPicker.value = cfg.watered_entity || "";
+    }
+
+    const adviceSwitch = root.querySelector("#psc-show-advice");
+    if (adviceSwitch) adviceSwitch.checked = cfg.show_advice !== false;
+
+    const sparklineSwitch = root.querySelector("#psc-show-sparkline");
+    if (sparklineSwitch) sparklineSwitch.checked = cfg.show_sparkline !== false;
   }
 }
 
