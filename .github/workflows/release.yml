@@ -1,0 +1,58 @@
+name: Auto Release
+
+# Creates a GitHub Release automatically whenever CARD_VERSION in
+# plant-sensor-card.js changes and no matching tag exists yet. This runs
+# with GitHub's own token inside the Action, so it works even though the
+# assistant session that usually pushes commits here isn't allowed to
+# create releases itself.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "plant-sensor-card.js"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read CARD_VERSION
+        id: version
+        run: |
+          VERSION=$(grep -oP 'CARD_VERSION = "\K[^"]+' plant-sensor-card.js)
+          if [ -z "$VERSION" ]; then
+            echo "Could not find CARD_VERSION in plant-sensor-card.js"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether this version already has a release
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create release
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
+          gh release create "$TAG" \
+            --repo "${{ github.repository }}" \
+            --title "$TAG" \
+            --generate-notes \
+            --target "${{ github.sha }}"
