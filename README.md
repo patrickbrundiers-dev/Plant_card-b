@@ -48,6 +48,20 @@ gerade geöffnet ist.
   kurze Ausreißer (z. B. direkt nach dem Gießen) keinen Fehlalarm aus. Die
   Karte schaut dafür auch ein Stück in den Home-Assistant-Verlauf zurück,
   damit das auch nach einem Dashboard-Neuladen korrekt funktioniert.
+- **Trendpfeile**: zeigt neben jedem Wert einen kleinen ↑/↓-Pfeil, wenn ein
+  Sensor über die letzten ~12 Stunden spürbar steigt oder fällt (Datenbasis:
+  Home-Assistant-Verlauf, alle 20 Minuten aktualisiert)
+- **Gieß-Vorhersage**: sinkt die Feuchtigkeit stetig und der Min-Wert ist
+  noch nicht erreicht, schätzt die Karte anhand des Trends, in wie vielen
+  Tagen vermutlich gegossen werden muss – als ruhiger Hinweis, bevor es
+  akut wird
+- **Gelerntes Gießintervall**: mit einem "zuletzt gegossen"-Helfer lernt die
+  Karte aus dem Verlauf, wie oft normalerweise gegossen wird, und meldet
+  sich, wenn die aktuelle Pause deutlich länger ist als sonst – auch ganz
+  ohne gesetzte Feuchtigkeits-Schwellenwerte
+- **Schweregrade bei Hinweisen**: Pflegehinweise werden farblich nach
+  Dringlichkeit sortiert – rot (deutliche Abweichung/deutlich überfällig),
+  orange (normale Grenzwertüberschreitung), grün-neutral (Vorhersage/Info)
 - **"Zuletzt gegossen"**: optional mit einem `input_datetime`-Helfer
   verknüpfen; die Karte zeigt "Vor X Tagen gegossen" an und bietet einen
   Button, um das Datum auf jetzt zu setzen
@@ -148,7 +162,9 @@ Für alle außer `battery` können zusätzlich `_min` und `_max` gesetzt werden.
 | Option                    | Beschreibung                                                             |
 |----------------------------|---------------------------------------------------------------------------|
 | `show_advice`              | Pflegehinweise ein-/ausblenden (Standard: `true`)                        |
-| `show_sparkline`           | 24h-Verlauf je Sensor ein-/ausblenden (Standard: `true`)                 |
+| `show_sparkline`           | Bereichsanzeige je Sensor ein-/ausblenden (Standard: `true`)             |
+| `show_trend`               | Trendpfeile (↑/↓) je Sensor ein-/ausblenden (Standard: `true`)           |
+| `show_predictions`         | Gieß-Vorhersage und gelerntes Gießintervall ein-/ausblenden (Standard: `true`) |
 | `advice_delay_minutes`     | Wie lange eine Grenzwertüberschreitung anhalten muss, bevor ein Hinweis erscheint (Standard: `0`) |
 | `watered_entity`           | Ein `input_datetime`-Helfer für "zuletzt gegossen" inkl. Button          |
 | `species_preset`           | Wird von der Editor-Vorlagenauswahl gesetzt, kann aber auch manuell angegeben werden |

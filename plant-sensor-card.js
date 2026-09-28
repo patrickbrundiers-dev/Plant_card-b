@@ -14,7 +14,7 @@
  * (a GitHub Action then creates the matching GitHub Release automatically).
  */
 
-const CARD_VERSION = "2.1.1";
+const CARD_VERSION = "2.2.0";
 
 const SENSOR_DEFS = [
   { key: "moisture", unit: "%" },
@@ -27,6 +27,26 @@ const SENSOR_DEFS = [
 
 const DEFAULT_BATTERY_MIN = 20;
 const HISTORY_LOOKBACK_MS = 6 * 60 * 60 * 1000; // 6h window used to seed the debounce timer
+
+// Trend arrows: look this far back to gauge whether a sensor is rising or
+// falling, and don't re-fetch history more often than the TTL.
+const TREND_LOOKBACK_MS = 12 * 60 * 60 * 1000; // 12h
+const TREND_CACHE_TTL_MS = 20 * 60 * 1000; // 20 min
+// Minimum change over the lookback window (in the sensor's own unit) before
+// it counts as a real trend instead of noise.
+const TREND_EPSILON = {
+  moisture: 2,
+  temperature: 0.4,
+  illuminance: 300,
+  conductivity: 40,
+  humidity: 2,
+  battery: 1,
+};
+
+// Learned watering interval: how far back to look for past waterings, and
+// how often to recompute the average once it's known.
+const WATERING_HISTORY_LOOKBACK_MS = 60 * 24 * 60 * 60 * 1000; // 60 days
+const WATERING_CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h
 
 // ---------------------------------------------------------------------------
 // Icons: plain line-icon paths (24x24 viewBox), used instead of mdi icons so
@@ -45,6 +65,9 @@ const ICON_PATHS = {
   check: '<path d="M5 13l4 4L19 7"/>',
   alert: '<path d="M12 9v4M12 17h.01M10.3 3.9 2.7 17a2 2 0 0 0 1.7 3h15.2a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/>',
   leaf: '<path d="M12 21c-3.5-2-6-5.2-6-9a6 6 0 0 1 12 0c0 3.8-2.5 7-6 9Z"/><path d="M12 21V9"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11.25 11.5h1v5h1"/>',
+  trend_up: '<path d="M4 16l6-6 4 4 6-8"/><path d="M14 6h6v6"/>',
+  trend_down: '<path d="M4 8l6 6 4-4 6 8"/><path d="M14 18h6v-6"/>',
 };
 
 function svgIcon(key, extra = "") {
@@ -102,6 +125,10 @@ const STRINGS = {
       humidity_low: "Luft ist zu trocken – besprühen oder Luftbefeuchter aufstellen.",
       humidity_high: "Luftfeuchtigkeit sehr hoch – für bessere Belüftung sorgen (Pilzgefahr).",
       battery_low: "Sensorbatterie wird schwach – bald austauschen.",
+      moisture_forecast: (n) =>
+        `Feuchtigkeit sinkt kontinuierlich – in ca. ${n} Tag${n === 1 ? "" : "en"} wahrscheinlich Gießen nötig.`,
+      watering_overdue: (avgDays) =>
+        `Vermutlich Zeit zum Gießen – im Schnitt wird etwa alle ${avgDays} Tage gegossen.`,
     },
     editor: {
       name: "Name der Pflanze",
@@ -122,6 +149,8 @@ const STRINGS = {
       wateredEntity: "Datum/Zeit-Helfer für „zuletzt gegossen“ (optional, input_datetime)",
       wateredEntityHint:
         "Lege dazu einen input_datetime-Helfer an (Einstellungen → Geräte & Dienste → Helfer). Die Karte zeigt dann an, wann zuletzt gegossen wurde, inkl. Button.",
+      showTrend: "Trendpfeile anzeigen (steigend/fallend)",
+      showPredictions: "Vorhersagen anzeigen (Gieß-Prognose, gelerntes Gießintervall)",
     },
   },
   en: {
@@ -157,6 +186,10 @@ const STRINGS = {
       humidity_low: "Air is too dry – mist the plant or use a humidifier.",
       humidity_high: "Humidity is very high – improve ventilation (risk of fungus).",
       battery_low: "Sensor battery is getting low – replace it soon.",
+      moisture_forecast: (n) =>
+        `Moisture is trending down – likely to need watering in about ${n} day${n === 1 ? "" : "s"}.`,
+      watering_overdue: (avgDays) =>
+        `Probably time to water – you usually water about every ${avgDays} days.`,
     },
     editor: {
       name: "Plant name",
@@ -177,6 +210,8 @@ const STRINGS = {
       wateredEntity: "Date/time helper for \"last watered\" (optional, input_datetime)",
       wateredEntityHint:
         "Create an input_datetime helper (Settings → Devices & Services → Helpers). The card then shows when it was last watered, with a button to update it.",
+      showTrend: "Show trend arrows (rising/falling)",
+      showPredictions: "Show predictions (watering forecast, learned watering interval)",
     },
   },
 };
@@ -219,6 +254,11 @@ class PlantSensorCard extends HTMLElement {
     super();
     this._badSince = {}; // per-entity/direction timestamp of when a breach was first observed
     this._seededKeys = new Set(); // avoids re-running the history seed for the same key
+    this._trendCache = {}; // entityId -> { fetchedAt, slopePerHour }
+    this._trendPending = new Set(); // entityIds with an in-flight history fetch
+    this._wateringStats = null; // { fetchedAt, avgIntervalMs } for the current watered_entity
+    this._wateringStatsKey = null; // which entity _wateringStats belongs to
+    this._wateringStatsPending = false;
   }
 
   setConfig(config) {
@@ -266,9 +306,22 @@ class PlantSensorCard extends HTMLElement {
     this.dispatchEvent(ev);
   }
 
+  // How far past a threshold a value has drifted, used to tell a mild
+  // breach ("warning") apart from a severe one ("danger") in the advice
+  // list. Purely relative to the threshold itself, not a botanical fact.
+  _breachSeverity(num, threshold, direction) {
+    const t = Number(threshold);
+    if (!Number.isFinite(t) || t === 0) return "warning";
+    if (direction === "low") return num < t * 0.6 ? "danger" : "warning";
+    return num > t * 1.4 ? "danger" : "warning";
+  }
+
   // -------------------------------------------------------------------
   // Advice generation, with a debounce so a brief spike (e.g. right
   // after watering) doesn't immediately trigger a care instruction.
+  // Also folds in predictive, non-urgent hints (watering forecast, learned
+  // watering interval) when enabled, tagged with severity "info" so they
+  // render and sort separately from actual threshold breaches.
   // -------------------------------------------------------------------
   _generateAdvice() {
     const t = this._t;
@@ -276,6 +329,7 @@ class PlantSensorCard extends HTMLElement {
     let anyThresholdConfigured = false;
     const delayMs = Math.max(0, Number(this._config.advice_delay_minutes) || 0) * 60000;
     const now = Date.now();
+    const predictionsEnabled = this._config.show_predictions !== false;
 
     SENSOR_DEFS.forEach((def) => {
       const entityId = this._config[`${def.key}_entity`];
@@ -308,7 +362,7 @@ class PlantSensorCard extends HTMLElement {
             this._seedBadSince(entityId, key, (v) => v < Number(minAttr));
           }
           if (now - this._badSince[key] >= delayMs) {
-            advice.push({ text: adviceLow, entityId });
+            advice.push({ text: adviceLow, entityId, severity: this._breachSeverity(num, minAttr, "low") });
           }
         } else {
           delete this._badSince[key];
@@ -325,7 +379,7 @@ class PlantSensorCard extends HTMLElement {
             this._seedBadSince(entityId, key, (v) => v > Number(maxAttr));
           }
           if (now - this._badSince[key] >= delayMs) {
-            advice.push({ text: adviceHigh, entityId });
+            advice.push({ text: adviceHigh, entityId, severity: this._breachSeverity(num, maxAttr, "high") });
           }
         } else {
           delete this._badSince[key];
@@ -333,7 +387,174 @@ class PlantSensorCard extends HTMLElement {
       }
     });
 
+    if (predictionsEnabled) {
+      this._addMoistureForecast(advice);
+      this._addWateringOverdueAdvice(advice);
+    }
+
+    // The learned watering-interval hint doesn't need any min/max threshold
+    // to be useful, so a watered_entity alone is enough to keep the advice
+    // section from being hidden entirely.
+    if (this._config.watered_entity) anyThresholdConfigured = true;
+
+    // Real breaches first (critical, then warning), predictive/info hints last.
+    const order = { danger: 0, warning: 1, info: 2 };
+    advice.sort((a, b) => (order[a.severity] ?? 1) - (order[b.severity] ?? 1));
+
     return { advice, anyThresholdConfigured };
+  }
+
+  // If moisture is configured with a min threshold and is trending down,
+  // estimate how many days remain before it's likely to cross that
+  // threshold, and add a heads-up (not yet a breach) so watering can
+  // happen proactively instead of reactively.
+  _addMoistureForecast(advice) {
+    const t = this._t;
+    const entityId = this._config.moisture_entity;
+    if (!entityId) return;
+    const minAttr = this._config.moisture_min;
+    if (minAttr === undefined || minAttr === "") return;
+
+    this._ensureTrend(entityId);
+
+    const stateObj = this._stateOf(entityId);
+    if (!stateObj) return;
+    const num = Number(stateObj.state);
+    if (!Number.isFinite(num)) return;
+
+    const min = Number(minAttr);
+    if (!(num > min)) return; // already breaching -> the normal warning covers it
+
+    const trend = this._trendCache[entityId];
+    if (!trend || trend.slopePerHour === null || trend.slopePerHour >= 0) return;
+
+    const hoursLeft = (num - min) / Math.abs(trend.slopePerHour);
+    const daysLeft = hoursLeft / 24;
+    if (daysLeft <= 0 || daysLeft > 7) return; // too far out to be a useful heads-up
+
+    const roundedDays = Math.max(1, Math.round(daysLeft));
+    advice.push({ text: t.advice.moisture_forecast(roundedDays), entityId, severity: "info" });
+  }
+
+  // If a "last watered" helper is configured, learn the plant's usual
+  // watering interval from its history and flag it when the time since the
+  // last watering significantly exceeds that average.
+  _addWateringOverdueAdvice(advice) {
+    const t = this._t;
+    const entityId = this._config.watered_entity;
+    if (!entityId) return;
+
+    this._ensureWateringStats(entityId);
+
+    const stateObj = this._stateOf(entityId);
+    if (!stateObj || !stateObj.state) return;
+    const lastWatered = new Date(stateObj.state).getTime();
+    if (!Number.isFinite(lastWatered)) return;
+
+    const stats = this._wateringStatsKey === entityId ? this._wateringStats : null;
+    if (!stats || !stats.avgIntervalMs) return;
+
+    const sinceMs = Date.now() - lastWatered;
+    const overdueRatio = sinceMs / stats.avgIntervalMs;
+    if (overdueRatio < 1.4) return;
+
+    const avgDays = Math.max(1, Math.round(stats.avgIntervalMs / 86400000));
+    advice.push({
+      text: t.advice.watering_overdue(avgDays),
+      entityId,
+      severity: overdueRatio >= 2 ? "danger" : "warning",
+    });
+  }
+
+  // -------------------------------------------------------------------
+  // Trend detection: is a sensor rising, falling, or roughly flat over the
+  // last TREND_LOOKBACK_MS? Backed by recorder history, cached with a TTL
+  // so a fetch doesn't fire on every single render.
+  // -------------------------------------------------------------------
+  _ensureTrend(entityId) {
+    if (!entityId || !this._hass || typeof this._hass.callApi !== "function") return;
+    const now = Date.now();
+    const cached = this._trendCache[entityId];
+    if (cached && now - cached.fetchedAt < TREND_CACHE_TTL_MS) return;
+    if (this._trendPending.has(entityId)) return;
+    this._trendPending.add(entityId);
+
+    (async () => {
+      let slopePerHour = null;
+      try {
+        const start = new Date(now - TREND_LOOKBACK_MS).toISOString();
+        const result = await this._hass.callApi("GET", `history/period/${start}?filter_entity_id=${entityId}`);
+        const series = ((result && result[0]) || [])
+          .map((p) => ({ t: new Date(p.last_changed).getTime(), v: Number(p.state) }))
+          .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v));
+        if (series.length >= 2) {
+          const first = series[0];
+          const last = series[series.length - 1];
+          const hours = (last.t - first.t) / 3600000;
+          if (hours > 0.5) slopePerHour = (last.v - first.v) / hours;
+        }
+      } catch (e) {
+        // Recorder history unavailable - leave slopePerHour null, no trend shown.
+      }
+      this._trendCache[entityId] = { fetchedAt: now, slopePerHour };
+      this._trendPending.delete(entityId);
+      this._render();
+    })();
+  }
+
+  // "up" / "down" / "flat" / null (no data yet) for the small trend arrow
+  // next to a metric's value.
+  _trendDirection(key, entityId) {
+    const cached = this._trendCache[entityId];
+    if (!cached || cached.slopePerHour === null) return null;
+    const eps = TREND_EPSILON[key] || 1;
+    const changeOverWindow = cached.slopePerHour * (TREND_LOOKBACK_MS / 3600000);
+    if (Math.abs(changeOverWindow) < eps) return "flat";
+    return changeOverWindow > 0 ? "up" : "down";
+  }
+
+  // -------------------------------------------------------------------
+  // Learned watering interval: average gap between past waterings, derived
+  // from the watered_entity's own history (every service call to set it
+  // creates a new state change = one watering event).
+  // -------------------------------------------------------------------
+  _ensureWateringStats(entityId) {
+    if (!entityId || !this._hass || typeof this._hass.callApi !== "function") return;
+    const now = Date.now();
+    if (
+      this._wateringStatsKey === entityId &&
+      this._wateringStats &&
+      now - this._wateringStats.fetchedAt < WATERING_CACHE_TTL_MS
+    ) {
+      return;
+    }
+    if (this._wateringStatsPending) return;
+    this._wateringStatsPending = true;
+
+    (async () => {
+      let avgIntervalMs = null;
+      try {
+        const start = new Date(now - WATERING_HISTORY_LOOKBACK_MS).toISOString();
+        const result = await this._hass.callApi("GET", `history/period/${start}?filter_entity_id=${entityId}`);
+        const series = ((result && result[0]) || [])
+          .map((p) => new Date(p.last_changed).getTime())
+          .filter((t2) => Number.isFinite(t2))
+          .sort((a, b) => a - b);
+        // Need at least 3 recorded changes to get 2+ intervals worth averaging;
+        // fewer than that isn't enough to call it a learned pattern yet.
+        if (series.length >= 3) {
+          const gaps = [];
+          for (let i = 1; i < series.length; i++) gaps.push(series[i] - series[i - 1]);
+          avgIntervalMs = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+        }
+      } catch (e) {
+        // Recorder history unavailable - no learned interval this time.
+      }
+      this._wateringStats = { fetchedAt: now, avgIntervalMs };
+      this._wateringStatsKey = entityId;
+      this._wateringStatsPending = false;
+      this._render();
+    })();
   }
 
   // Best-effort: look a few hours into the recorder history to find how
@@ -552,7 +773,13 @@ class PlantSensorCard extends HTMLElement {
               display: flex; align-items: center; justify-content: center;
             }
             .psc-metric-icon.warning { background: var(--psc-warning-soft); color: var(--psc-warning); }
+            .psc-metric-icon.danger { background: color-mix(in srgb, var(--psc-danger) 18%, var(--psc-surface)); color: var(--psc-danger); }
             .psc-metric-icon svg { width: 17px; height: 17px; }
+            .psc-trend {
+              display: inline-flex; width: 11px; height: 11px; margin-left: 5px;
+              color: var(--psc-text-2); vertical-align: middle;
+            }
+            .psc-trend svg { width: 100%; height: 100%; }
             .psc-metric-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
             .psc-metric-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
             .psc-metric-label {
@@ -601,6 +828,8 @@ class PlantSensorCard extends HTMLElement {
               cursor: pointer;
             }
             .psc-advice-item.ok { background: var(--psc-accent-soft); cursor: default; }
+            .psc-advice-item.danger { background: color-mix(in srgb, var(--psc-danger) 16%, var(--psc-surface)); }
+            .psc-advice-item.info { background: var(--psc-accent-soft); }
             .psc-advice-chip-icon {
               width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
               background: var(--psc-warning); color: #241705;
@@ -608,6 +837,8 @@ class PlantSensorCard extends HTMLElement {
             }
             .psc-advice-chip-icon svg { width: 12px; height: 12px; }
             .psc-advice-item.ok .psc-advice-chip-icon { background: var(--psc-accent-1); color: #08150d; }
+            .psc-advice-item.danger .psc-advice-chip-icon { background: var(--psc-danger); color: #2a0b06; }
+            .psc-advice-item.info .psc-advice-chip-icon { background: var(--psc-text-2); color: var(--psc-surface); }
           </style>
         </ha-card>
       `;
@@ -659,6 +890,7 @@ class PlantSensorCard extends HTMLElement {
 
     // Sensor rows
     const showRange = this._config.show_sparkline !== false;
+    const showTrend = this._config.show_trend !== false;
     const metrics = this.querySelector(".psc-metrics");
     metrics.innerHTML = "";
 
@@ -679,8 +911,12 @@ class PlantSensorCard extends HTMLElement {
       if (stateObj && stateObj.state !== "unknown" && stateObj.state !== "unavailable") {
         const num = Number(stateObj.state);
         if (Number.isFinite(num)) {
-          if (minAttr !== undefined && minAttr !== "" && num < Number(minAttr)) severity = "warning";
-          if (maxAttr !== undefined && maxAttr !== "" && num > Number(maxAttr)) severity = "warning";
+          if (minAttr !== undefined && minAttr !== "" && num < Number(minAttr)) {
+            severity = this._breachSeverity(num, minAttr, "low");
+          }
+          if (maxAttr !== undefined && maxAttr !== "" && num > Number(maxAttr)) {
+            severity = this._breachSeverity(num, maxAttr, "high");
+          }
         }
       }
 
@@ -697,6 +933,17 @@ class PlantSensorCard extends HTMLElement {
         }
       }
 
+      let trendHtml = "";
+      if (showTrend && stateObj && stateObj.state !== "unknown" && stateObj.state !== "unavailable") {
+        this._ensureTrend(entityId);
+        const dir = this._trendDirection(def.key, entityId);
+        if (dir === "up" || dir === "down") {
+          trendHtml = `<span class="psc-trend ${dir}" title="${dir === "up" ? "↑" : "↓"}">${svgIcon(
+            dir === "up" ? "trend_up" : "trend_down"
+          )}</span>`;
+        }
+      }
+
       const row = document.createElement("div");
       row.className = "psc-metric-row";
       row.innerHTML = `
@@ -704,7 +951,7 @@ class PlantSensorCard extends HTMLElement {
         <div class="psc-metric-main">
           <div class="psc-metric-top">
             <span class="psc-metric-label">${label}</span>
-            <span class="psc-metric-value ${severity}">${value}</span>
+            <span class="psc-metric-value ${severity}">${value}${trendHtml}</span>
           </div>
           ${trackHtml}
         </div>
@@ -753,14 +1000,16 @@ class PlantSensorCard extends HTMLElement {
       `;
     } else {
       itemsHtml = advice
-        .map(
-          (a) => `
-        <div class="psc-advice-item" data-entity="${a.entityId}">
-          <span class="psc-advice-chip-icon">${svgIcon("alert", 'stroke-width="2.5"')}</span>
+        .map((a) => {
+          const severity = a.severity || "warning";
+          const iconKey = severity === "info" ? "info" : "alert";
+          return `
+        <div class="psc-advice-item ${severity}" data-entity="${a.entityId}">
+          <span class="psc-advice-chip-icon">${svgIcon(iconKey, 'stroke-width="2.5"')}</span>
           <span>${a.text}</span>
         </div>
-      `
-        )
+      `;
+        })
         .join("");
     }
 
@@ -945,6 +1194,14 @@ class PlantSensorCardEditor extends HTMLElement {
         <span>${t.editor.showSparkline}</span>
         <ha-switch id="psc-show-sparkline"></ha-switch>
       </div>
+      <div class="psc-switch-row">
+        <span>${t.editor.showTrend}</span>
+        <ha-switch id="psc-show-trend"></ha-switch>
+      </div>
+      <div class="psc-switch-row">
+        <span>${t.editor.showPredictions}</span>
+        <ha-switch id="psc-show-predictions"></ha-switch>
+      </div>
     `;
 
     // Event listeners are wired up exactly once, here in _buildStructure().
@@ -1001,6 +1258,12 @@ class PlantSensorCardEditor extends HTMLElement {
 
     const sparklineSwitch = this.content.querySelector("#psc-show-sparkline");
     sparklineSwitch.addEventListener("change", (e) => this._valueChanged("show_sparkline", e.target.checked));
+
+    const trendSwitch = this.content.querySelector("#psc-show-trend");
+    trendSwitch.addEventListener("change", (e) => this._valueChanged("show_trend", e.target.checked));
+
+    const predictionsSwitch = this.content.querySelector("#psc-show-predictions");
+    predictionsSwitch.addEventListener("change", (e) => this._valueChanged("show_predictions", e.target.checked));
   }
 
   // Applies the current config to the already-built DOM. Called on every
@@ -1053,6 +1316,12 @@ class PlantSensorCardEditor extends HTMLElement {
 
     const sparklineSwitch = root.querySelector("#psc-show-sparkline");
     if (sparklineSwitch) sparklineSwitch.checked = cfg.show_sparkline !== false;
+
+    const trendSwitch = root.querySelector("#psc-show-trend");
+    if (trendSwitch) trendSwitch.checked = cfg.show_trend !== false;
+
+    const predictionsSwitch = root.querySelector("#psc-show-predictions");
+    if (predictionsSwitch) predictionsSwitch.checked = cfg.show_predictions !== false;
   }
 }
 
