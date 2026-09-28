@@ -14,7 +14,7 @@
  * (a GitHub Action then creates the matching GitHub Release automatically).
  */
 
-const CARD_VERSION = "2.2.0";
+const CARD_VERSION = "2.3.0";
 
 const SENSOR_DEFS = [
   { key: "moisture", unit: "%" },
@@ -142,8 +142,14 @@ const STRINGS = {
       showAdvice: "Pflegehinweise anzeigen",
       showSparkline: "Bereichsanzeige (Position zwischen Min/Max) anzeigen",
       speciesPreset: "Pflanzenart-Vorlage",
-      speciesPresetHint: "Füllt die Min/Max-Felder mit typischen Richtwerten – danach nach Bedarf anpassen.",
-      speciesPresetNone: "Keine Vorlage",
+      speciesPresetHint:
+        "Füllt die Min/Max-Felder mit typischen Richtwerten. Die Felder bei den Sensoren bleiben danach normal editierbar – du kannst also jederzeit manuell nachjustieren oder ganz ohne Vorlage eigene Grenzwerte eintragen.",
+      speciesPresetNone: "Keine Vorlage (Grenzwerte manuell festlegen)",
+      speciesCategory: {
+        houseplant: "Zimmerpflanzen",
+        succulent: "Sukkulenten & Kakteen",
+        herb: "Kräuter & Balkon",
+      },
       adviceDelay: "Verzögerung bis ein Hinweis erscheint (Minuten)",
       adviceDelayHint: "Verhindert Fehlalarme durch kurze Ausreißer, z. B. direkt nach dem Gießen.",
       wateredEntity: "Datum/Zeit-Helfer für „zuletzt gegossen“ (optional, input_datetime)",
@@ -203,8 +209,14 @@ const STRINGS = {
       showAdvice: "Show care advice",
       showSparkline: "Show range indicator (position between min/max)",
       speciesPreset: "Species preset",
-      speciesPresetHint: "Fills in typical Min/Max ranges – adjust afterwards as needed.",
-      speciesPresetNone: "No preset",
+      speciesPresetHint:
+        "Fills in typical Min/Max ranges. The fields next to each sensor stay normally editable afterwards, so you can fine-tune them or skip the preset entirely and enter your own thresholds.",
+      speciesPresetNone: "No preset (set thresholds manually)",
+      speciesCategory: {
+        houseplant: "Houseplants",
+        succulent: "Succulents & cacti",
+        herb: "Herbs & balcony",
+      },
       adviceDelay: "Delay before advice appears (minutes)",
       adviceDelayHint: "Avoids false alarms from brief spikes, e.g. right after watering.",
       wateredEntity: "Date/time helper for \"last watered\" (optional, input_datetime)",
@@ -226,17 +238,48 @@ function getLang(hass) {
 // Meant as a starting point in the editor, not a botanical guarantee.
 // ---------------------------------------------------------------------------
 const SPECIES_PRESETS = [
-  { id: "monstera", label: "Monstera deliciosa", moisture: [20, 60], temperature: [18, 27], illuminance: [1000, 15000], conductivity: [350, 700] },
-  { id: "sansevieria", label: "Sansevieria (Bogenhanf)", moisture: [5, 30], temperature: [15, 30], illuminance: [500, 20000], conductivity: [150, 500] },
-  { id: "ficus_elastica", label: "Ficus elastica (Gummibaum)", moisture: [15, 50], temperature: [16, 26], illuminance: [1500, 20000], conductivity: [300, 600] },
-  { id: "epipremnum", label: "Epipremnum aureum (Efeutute)", moisture: [20, 55], temperature: [18, 29], illuminance: [500, 12000], conductivity: [250, 600] },
-  { id: "spathiphyllum", label: "Spathiphyllum (Einblatt)", moisture: [25, 65], temperature: [18, 26], illuminance: [500, 8000], conductivity: [300, 600] },
-  { id: "chlorophytum", label: "Chlorophytum comosum (Grünlilie)", moisture: [15, 50], temperature: [13, 27], illuminance: [800, 15000], conductivity: [250, 550] },
-  { id: "aloe_vera", label: "Aloe Vera", moisture: [5, 25], temperature: [15, 30], illuminance: [2000, 25000], conductivity: [150, 400] },
-  { id: "orchidee", label: "Phalaenopsis (Orchidee)", moisture: [15, 45], temperature: [18, 28], illuminance: [1000, 10000], conductivity: [100, 350] },
-  { id: "basilikum", label: "Basilikum", moisture: [30, 65], temperature: [18, 30], illuminance: [2000, 20000], conductivity: [400, 800] },
-  { id: "zamioculcas", label: "Zamioculcas zamiifolia (Glücksfeder)", moisture: [5, 30], temperature: [16, 28], illuminance: [300, 15000], conductivity: [150, 450] },
+  // --- Zimmerpflanzen -------------------------------------------------
+  { id: "monstera", category: "houseplant", label: "Monstera deliciosa", moisture: [20, 60], temperature: [18, 27], illuminance: [1000, 15000], conductivity: [350, 700] },
+  { id: "sansevieria", category: "houseplant", label: "Sansevieria (Bogenhanf)", moisture: [5, 30], temperature: [15, 30], illuminance: [500, 20000], conductivity: [150, 500] },
+  { id: "ficus_elastica", category: "houseplant", label: "Ficus elastica (Gummibaum)", moisture: [15, 50], temperature: [16, 26], illuminance: [1500, 20000], conductivity: [300, 600] },
+  { id: "ficus_benjamina", category: "houseplant", label: "Ficus benjamina (Birkenfeige)", moisture: [20, 50], temperature: [16, 27], illuminance: [1000, 18000], conductivity: [300, 600] },
+  { id: "epipremnum", category: "houseplant", label: "Epipremnum aureum (Efeutute)", moisture: [20, 55], temperature: [18, 29], illuminance: [500, 12000], conductivity: [250, 600] },
+  { id: "spathiphyllum", category: "houseplant", label: "Spathiphyllum (Einblatt)", moisture: [25, 65], temperature: [18, 26], illuminance: [500, 8000], conductivity: [300, 600] },
+  { id: "chlorophytum", category: "houseplant", label: "Chlorophytum comosum (Grünlilie)", moisture: [15, 50], temperature: [13, 27], illuminance: [800, 15000], conductivity: [250, 550] },
+  { id: "orchidee", category: "houseplant", label: "Phalaenopsis (Orchidee)", moisture: [15, 45], temperature: [18, 28], illuminance: [1000, 10000], conductivity: [100, 350] },
+  { id: "zamioculcas", category: "houseplant", label: "Zamioculcas zamiifolia (Glücksfeder)", moisture: [5, 30], temperature: [16, 28], illuminance: [300, 15000], conductivity: [150, 450] },
+  { id: "hedera", category: "houseplant", label: "Hedera helix (Efeu)", moisture: [20, 55], temperature: [10, 24], illuminance: [500, 12000], conductivity: [200, 500] },
+  { id: "dracaena", category: "houseplant", label: "Dracaena marginata (Drachenbaum)", moisture: [15, 45], temperature: [18, 27], illuminance: [800, 15000], conductivity: [250, 550] },
+  { id: "philodendron", category: "houseplant", label: "Philodendron scandens", moisture: [20, 55], temperature: [18, 28], illuminance: [500, 10000], conductivity: [250, 550] },
+  { id: "calathea", category: "houseplant", label: "Calathea", moisture: [30, 65], temperature: [18, 26], illuminance: [500, 6000], conductivity: [200, 450] },
+  { id: "fittonia", category: "houseplant", label: "Fittonia (Mosaikpflanze)", moisture: [35, 70], temperature: [18, 26], illuminance: [500, 6000], conductivity: [200, 450] },
+  { id: "alocasia", category: "houseplant", label: "Alocasia", moisture: [30, 60], temperature: [18, 27], illuminance: [800, 10000], conductivity: [250, 500] },
+  { id: "anthurium", category: "houseplant", label: "Anthurium (Flamingoblume)", moisture: [25, 55], temperature: [18, 27], illuminance: [800, 10000], conductivity: [250, 550] },
+  { id: "schefflera", category: "houseplant", label: "Schefflera (Strahlenaralie)", moisture: [20, 50], temperature: [16, 27], illuminance: [1000, 15000], conductivity: [250, 550] },
+  { id: "areca", category: "houseplant", label: "Areca-Palme (Dypsis lutescens)", moisture: [25, 55], temperature: [18, 27], illuminance: [1000, 15000], conductivity: [250, 500] },
+  { id: "pilea", category: "houseplant", label: "Pilea peperomioides (Ufopflanze)", moisture: [20, 50], temperature: [18, 26], illuminance: [800, 10000], conductivity: [250, 500] },
+  { id: "saintpaulia", category: "houseplant", label: "Saintpaulia (Usambaraveilchen)", moisture: [30, 60], temperature: [18, 24], illuminance: [500, 5000], conductivity: [200, 450] },
+
+  // --- Sukkulenten & Kakteen -------------------------------------------
+  { id: "aloe_vera", category: "succulent", label: "Aloe Vera", moisture: [5, 25], temperature: [15, 30], illuminance: [2000, 25000], conductivity: [150, 400] },
+  { id: "crassula", category: "succulent", label: "Crassula ovata (Geldbaum)", moisture: [5, 25], temperature: [15, 27], illuminance: [2000, 20000], conductivity: [150, 400] },
+  { id: "echeveria", category: "succulent", label: "Echeveria", moisture: [5, 20], temperature: [15, 28], illuminance: [3000, 25000], conductivity: [100, 350] },
+  { id: "kaktus", category: "succulent", label: "Kaktus (allgemein)", moisture: [3, 15], temperature: [15, 32], illuminance: [3000, 30000], conductivity: [100, 300] },
+  { id: "yucca", category: "succulent", label: "Yucca elephantipes", moisture: [5, 30], temperature: [15, 30], illuminance: [2000, 25000], conductivity: [150, 400] },
+
+  // --- Kräuter & Balkon --------------------------------------------------
+  { id: "basilikum", category: "herb", label: "Basilikum", moisture: [30, 65], temperature: [18, 30], illuminance: [2000, 20000], conductivity: [400, 800] },
+  { id: "minze", category: "herb", label: "Minze", moisture: [35, 70], temperature: [15, 28], illuminance: [2000, 20000], conductivity: [400, 800] },
+  { id: "rosmarin", category: "herb", label: "Rosmarin", moisture: [10, 35], temperature: [12, 30], illuminance: [3000, 25000], conductivity: [200, 500] },
+  { id: "thymian", category: "herb", label: "Thymian", moisture: [10, 35], temperature: [12, 30], illuminance: [3000, 25000], conductivity: [200, 450] },
+  { id: "petersilie", category: "herb", label: "Petersilie", moisture: [30, 60], temperature: [12, 25], illuminance: [1500, 15000], conductivity: [350, 700] },
+  { id: "schnittlauch", category: "herb", label: "Schnittlauch", moisture: [30, 60], temperature: [10, 25], illuminance: [1500, 15000], conductivity: [300, 650] },
+  { id: "lavendel", category: "herb", label: "Lavendel", moisture: [10, 30], temperature: [10, 30], illuminance: [3000, 25000], conductivity: [150, 400] },
+  { id: "geranie", category: "herb", label: "Geranie (Pelargonium)", moisture: [20, 50], temperature: [15, 28], illuminance: [3000, 25000], conductivity: [300, 650] },
+  { id: "tomate", category: "herb", label: "Tomate (Balkon)", moisture: [35, 70], temperature: [15, 30], illuminance: [3000, 30000], conductivity: [500, 1000] },
 ];
+
+const SPECIES_CATEGORY_ORDER = ["houseplant", "succulent", "herb"];
 
 class PlantSensorCard extends HTMLElement {
   static getConfigElement() {
@@ -1099,9 +1142,13 @@ class PlantSensorCardEditor extends HTMLElement {
     this.innerHTML = `<div class="psc-editor"></div>`;
     this.content = this.querySelector(".psc-editor");
 
-    const presetOptions = SPECIES_PRESETS.map(
-      (p) => `<option value="${p.id}">${p.label}</option>`
-    ).join("");
+    const presetOptions = SPECIES_CATEGORY_ORDER.map((cat) => {
+      const items = SPECIES_PRESETS.filter((p) => p.category === cat);
+      if (!items.length) return "";
+      const optionsHtml = items.map((p) => `<option value="${p.id}">${p.label}</option>`).join("");
+      const groupLabel = t.editor.speciesCategory[cat] || cat;
+      return `<optgroup label="${groupLabel}">${optionsHtml}</optgroup>`;
+    }).join("");
 
     const sensorRows = SENSOR_DEFS.map((def) => {
       const thresholdRow = `

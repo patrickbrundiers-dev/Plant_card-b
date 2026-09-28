@@ -31,9 +31,13 @@ gerade geöffnet ist.
 - Funktioniert mit **jedem** Sensor, egal welche Integration dahintersteckt
   (Mi Flora / BLE, Zigbee, ESPHome, FYTA, Xiaomi, ...)
 - Optionaler Name, Spezies und Bild für die Pflanze
-- **Pflanzenart-Vorlagen**: im Editor eine Art auswählen (z. B. Monstera,
-  Sansevieria, Orchidee) und Min/Max-Werte werden automatisch mit typischen
-  Richtwerten vorausgefüllt – danach nach Bedarf anpassen
+- **Pflanzenart-Vorlagen**: über 30 Vorlagen, gruppiert nach Zimmerpflanzen,
+  Sukkulenten/Kakteen und Kräuter/Balkon (z. B. Monstera, Sansevieria,
+  Orchidee, Calathea, Efeutute, Echeveria, Rosmarin, Tomate, ...) – Auswahl
+  füllt die Min/Max-Werte automatisch mit typischen Richtwerten
+- **Grenzwerte jederzeit manuell festlegen**: die Min/Max-Felder pro Sensor
+  bleiben nach Anwenden einer Vorlage ganz normal editierbar, und mit
+  „Keine Vorlage" lassen sich alle Schwellenwerte komplett frei eintragen
 - Min/Max-Schwellenwerte pro Sensor, die den Wert bei Über-/Unterschreitung
   farblich hervorheben
 - **Bereichsanzeige** je Sensor: ein Punkt zeigt, wo der aktuelle Wert
