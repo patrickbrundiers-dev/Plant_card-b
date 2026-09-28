@@ -14,7 +14,7 @@
  * (a GitHub Action then creates the matching GitHub Release automatically).
  */
 
-const CARD_VERSION = "2.3.0";
+const CARD_VERSION = "2.4.0";
 
 const SENSOR_DEFS = [
   { key: "moisture", unit: "%" },
@@ -155,7 +155,7 @@ const STRINGS = {
       wateredEntity: "Datum/Zeit-Helfer für „zuletzt gegossen“ (optional, input_datetime)",
       wateredEntityHint:
         "Lege dazu einen input_datetime-Helfer an (Einstellungen → Geräte & Dienste → Helfer). Die Karte zeigt dann an, wann zuletzt gegossen wurde, inkl. Button.",
-      showTrend: "Trendpfeile anzeigen (steigend/fallend)",
+      showTrend: "Trend anzeigen (Pfeil + Mini-Verlaufsgrafik)",
       showPredictions: "Vorhersagen anzeigen (Gieß-Prognose, gelerntes Gießintervall)",
     },
   },
@@ -222,7 +222,7 @@ const STRINGS = {
       wateredEntity: "Date/time helper for \"last watered\" (optional, input_datetime)",
       wateredEntityHint:
         "Create an input_datetime helper (Settings → Devices & Services → Helpers). The card then shows when it was last watered, with a button to update it.",
-      showTrend: "Show trend arrows (rising/falling)",
+      showTrend: "Show trend (arrow + mini history graph)",
       showPredictions: "Show predictions (watering forecast, learned watering interval)",
     },
   },
@@ -524,12 +524,14 @@ class PlantSensorCard extends HTMLElement {
 
     (async () => {
       let slopePerHour = null;
+      let points = [];
       try {
         const start = new Date(now - TREND_LOOKBACK_MS).toISOString();
         const result = await this._hass.callApi("GET", `history/period/${start}?filter_entity_id=${entityId}`);
         const series = ((result && result[0]) || [])
           .map((p) => ({ t: new Date(p.last_changed).getTime(), v: Number(p.state) }))
           .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v));
+        points = series;
         if (series.length >= 2) {
           const first = series[0];
           const last = series[series.length - 1];
@@ -539,7 +541,7 @@ class PlantSensorCard extends HTMLElement {
       } catch (e) {
         // Recorder history unavailable - leave slopePerHour null, no trend shown.
       }
-      this._trendCache[entityId] = { fetchedAt: now, slopePerHour };
+      this._trendCache[entityId] = { fetchedAt: now, slopePerHour, points };
       this._trendPending.delete(entityId);
       this._render();
     })();
@@ -554,6 +556,36 @@ class PlantSensorCard extends HTMLElement {
     const changeOverWindow = cached.slopePerHour * (TREND_LOOKBACK_MS / 3600000);
     if (Math.abs(changeOverWindow) < eps) return "flat";
     return changeOverWindow > 0 ? "up" : "down";
+  }
+
+  // Small inline history chart (last TREND_LOOKBACK_MS) for a metric row,
+  // built from the same points already fetched for the trend arrow so it
+  // costs no extra recorder calls. Returns "" when there isn't enough data
+  // to draw a meaningful line yet.
+  _sparklineSvg(points, severityClass) {
+    if (!points || points.length < 3) return "";
+    const w = 100;
+    const h = 22;
+    const pad = 2;
+    const values = points.map((p) => p.v);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const span = max - min || 1;
+    const tMin = points[0].t;
+    const tMax = points[points.length - 1].t;
+    const tSpan = tMax - tMin || 1;
+    const coords = points
+      .map((p) => {
+        const x = pad + ((p.t - tMin) / tSpan) * (w - pad * 2);
+        const y = h - pad - ((p.v - min) / span) * (h - pad * 2);
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      })
+      .join(" ");
+    return `
+      <svg class="psc-metric-spark ${severityClass || ""}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+        <polyline points="${coords}" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    `;
   }
 
   // -------------------------------------------------------------------
@@ -823,6 +855,12 @@ class PlantSensorCard extends HTMLElement {
               color: var(--psc-text-2); vertical-align: middle;
             }
             .psc-trend svg { width: 100%; height: 100%; }
+            .psc-metric-spark {
+              width: 100%; height: 20px; display: block;
+              color: var(--psc-accent-1); opacity: 0.75;
+            }
+            .psc-metric-spark.warning { color: var(--psc-warning); }
+            .psc-metric-spark.danger { color: var(--psc-danger); }
             .psc-metric-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
             .psc-metric-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
             .psc-metric-label {
@@ -977,6 +1015,7 @@ class PlantSensorCard extends HTMLElement {
       }
 
       let trendHtml = "";
+      let sparkHtml = "";
       if (showTrend && stateObj && stateObj.state !== "unknown" && stateObj.state !== "unavailable") {
         this._ensureTrend(entityId);
         const dir = this._trendDirection(def.key, entityId);
@@ -984,6 +1023,10 @@ class PlantSensorCard extends HTMLElement {
           trendHtml = `<span class="psc-trend ${dir}" title="${dir === "up" ? "↑" : "↓"}">${svgIcon(
             dir === "up" ? "trend_up" : "trend_down"
           )}</span>`;
+        }
+        const cachedTrend = this._trendCache[entityId];
+        if (cachedTrend && cachedTrend.points) {
+          sparkHtml = this._sparklineSvg(cachedTrend.points, severity);
         }
       }
 
@@ -996,6 +1039,7 @@ class PlantSensorCard extends HTMLElement {
             <span class="psc-metric-label">${label}</span>
             <span class="psc-metric-value ${severity}">${value}${trendHtml}</span>
           </div>
+          ${sparkHtml}
           ${trackHtml}
         </div>
       `;

@@ -52,8 +52,9 @@ gerade geöffnet ist.
   kurze Ausreißer (z. B. direkt nach dem Gießen) keinen Fehlalarm aus. Die
   Karte schaut dafür auch ein Stück in den Home-Assistant-Verlauf zurück,
   damit das auch nach einem Dashboard-Neuladen korrekt funktioniert.
-- **Trendpfeile**: zeigt neben jedem Wert einen kleinen ↑/↓-Pfeil, wenn ein
-  Sensor über die letzten ~12 Stunden spürbar steigt oder fällt (Datenbasis:
+- **Trendpfeile & Mini-Verlaufsgrafik**: zeigt neben jedem Wert einen
+  kleinen ↑/↓-Pfeil sowie darunter eine kompakte Verlaufslinie der letzten
+  ~12 Stunden, wenn sich ein Sensor spürbar verändert (Datenbasis:
   Home-Assistant-Verlauf, alle 20 Minuten aktualisiert)
 - **Gieß-Vorhersage**: sinkt die Feuchtigkeit stetig und der Min-Wert ist
   noch nicht erreicht, schätzt die Karte anhand des Trends, in wie vielen
@@ -76,7 +77,9 @@ gerade geöffnet ist.
   der zugehörigen Entität
 
 **Plant Overview Card**
-- Listet mehrere Pflanzen mit Ampel-Punkt (grün / gelb / grau) auf
+- Listet mehrere Pflanzen mit Ampel-Punkt auf: grün (alles ok), orange
+  (Hinweis), rot (deutliche Abweichung – dieselbe Schwerelogik wie bei der
+  Einzelkarte), grau (keine Grenzwerte gesetzt)
 - Zeigt pro Pflanze die Anzahl offener Hinweise
 - Eigener Editor zum Hinzufügen/Entfernen von Pflanzen und deren Sensoren
 

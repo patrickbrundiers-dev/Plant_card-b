@@ -11,7 +11,7 @@
  * https://github.com/patrickbrundiers-dev/Plant_card-b
  */
 
-const CARD_VERSION = "1.0.1";
+const CARD_VERSION = "1.1.0";
 
 const SENSOR_DEFS = [
   { key: "moisture", icon: "mdi:water-percent", unit: "%" },
@@ -68,9 +68,20 @@ function getLang(hass) {
   return STRINGS[lang] ? lang : lang.startsWith("de") ? "de" : "en";
 }
 
+// How far past a threshold a value has drifted before it counts as a
+// "danger"-level problem instead of a plain "warning" one - same relative
+// heuristic as the single-plant card, so the two stay consistent.
+function breachSeverity(num, threshold, direction) {
+  const t = Number(threshold);
+  if (!Number.isFinite(t) || t === 0) return "warning";
+  if (direction === "low") return num < t * 0.6 ? "danger" : "warning";
+  return num > t * 1.4 ? "danger" : "warning";
+}
+
 function evaluatePlant(hass, plant) {
   let configured = false;
   let problems = 0;
+  let dangerProblems = 0;
 
   SENSOR_DEFS.forEach((def) => {
     const entityId = plant[`${def.key}_entity`];
@@ -86,15 +97,21 @@ function evaluatePlant(hass, plant) {
 
     if (min !== undefined && min !== "") {
       configured = true;
-      if (num < Number(min)) problems += 1;
+      if (num < Number(min)) {
+        problems += 1;
+        if (breachSeverity(num, min, "low") === "danger") dangerProblems += 1;
+      }
     }
     if (max !== undefined && max !== "") {
       configured = true;
-      if (num > Number(max)) problems += 1;
+      if (num > Number(max)) {
+        problems += 1;
+        if (breachSeverity(num, max, "high") === "danger") dangerProblems += 1;
+      }
     }
   });
 
-  return { configured, problems };
+  return { configured, problems, dangerProblems };
 }
 
 class PlantOverviewCard extends HTMLElement {
@@ -147,6 +164,7 @@ class PlantOverviewCard extends HTMLElement {
               --poc-surface-2: #eef3e8; --poc-text: #16211a; --poc-text-2: #647566;
               --poc-accent-1: #2f8f5c; --poc-accent-soft: #e2f1e6;
               --poc-warning: #d98a2b; --poc-warning-soft: #fbeedd;
+              --poc-danger: #c85a45;
               --poc-track: #e5ecdf;
               display: block;
               padding: 20px;
@@ -158,6 +176,7 @@ class PlantOverviewCard extends HTMLElement {
               --poc-surface-2: #1c2721; --poc-text: #edf3ec; --poc-text-2: #93a696;
               --poc-accent-1: #74cf9d; --poc-accent-soft: #1e3428;
               --poc-warning: #f0a75c; --poc-warning-soft: #3a2c18;
+              --poc-danger: #ef7a68;
               --poc-track: #263129;
             }
             .poc-title {
@@ -176,6 +195,7 @@ class PlantOverviewCard extends HTMLElement {
               background: var(--poc-accent-1);
             }
             .poc-dot.warning { background: var(--poc-warning); }
+            .poc-dot.danger { background: var(--poc-danger); }
             .poc-dot.neutral { background: var(--poc-text-2); opacity: 0.5; }
             .poc-name-wrap { display: flex; flex-direction: column; flex: 1; min-width: 0; }
             .poc-name { font-weight: 800; font-size: 0.92rem; }
@@ -204,11 +224,11 @@ class PlantOverviewCard extends HTMLElement {
     }
 
     plants.forEach((plant) => {
-      const { configured, problems } = evaluatePlant(this._hass, plant);
+      const { configured, problems, dangerProblems } = evaluatePlant(this._hass, plant);
       let dotClass = "neutral";
       let statusText = t.noThresholds;
       if (configured) {
-        dotClass = problems > 0 ? "warning" : "ok";
+        dotClass = dangerProblems > 0 ? "danger" : problems > 0 ? "warning" : "ok";
         statusText = problems > 0 ? t.problemsCount(problems) : t.allGood;
       }
 
