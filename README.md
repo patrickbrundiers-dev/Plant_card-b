@@ -67,20 +67,36 @@ gerade geöffnet ist.
 - **Schweregrade bei Hinweisen**: Pflegehinweise werden farblich nach
   Dringlichkeit sortiert – rot (deutliche Abweichung/deutlich überfällig),
   orange (normale Grenzwertüberschreitung), grün-neutral (Vorhersage/Info)
-- **"Zuletzt gegossen"**: optional mit einem `input_datetime`-Helfer
-  verknüpfen; die Karte zeigt "Vor X Tagen gegossen" an und bietet einen
-  Button, um das Datum auf jetzt zu setzen
+- **"Zuletzt gegossen" & "Zuletzt gedüngt"**: je optional mit einem eigenen
+  `input_datetime`-Helfer verknüpfen; die Karte zeigt "Vor X Tagen
+  gegossen/gedüngt" an, bietet je einen Button zum Setzen auf jetzt, und
+  zeigt (sobald genug Verlauf vorliegt) das gelernte Intervall ("Ø alle X
+  Tage") direkt daneben an
+- **Kombi-Hinweis bei trockener Erde + trockener Luft**: erscheint
+  zusätzlich, wenn beide gleichzeitig unter ihrem Min-Wert liegen, da sich
+  das gegenseitig verstärkt
+- **Saisonale Anpassung (optional)**: lockert im Winter (Dez/Jan/Feb) die
+  "zu trocken"-Schwelle für Feuchtigkeit um 20 %, um Fehlalarme zu
+  vermeiden – wirkt nur auf Hinweise, nicht auf den angezeigten Min-Wert
+- **Konfiguration als YAML kopieren**: Button im Editor, um die aktuelle
+  Kartenkonfiguration zum Sichern oder Teilen in die Zwischenablage zu
+  kopieren
 - Die Batterie bekommt automatisch einen sinnvollen Standard-Grenzwert (20 %)
 - Verfügbar auf Deutsch und Englisch (folgt automatisch der
   Home-Assistant-Spracheinstellung)
 - Klick auf einen Wert oder Hinweis öffnet den "Mehr Informationen"-Dialog
-  der zugehörigen Entität
+  der zugehörigen Entität (inkl. Verlaufsgrafik, wie von Home Assistant
+  gewohnt)
 
 **Plant Overview Card**
 - Listet mehrere Pflanzen mit Ampel-Punkt auf: grün (alles ok), orange
   (Hinweis), rot (deutliche Abweichung – dieselbe Schwerelogik wie bei der
   Einzelkarte), grau (keine Grenzwerte gesetzt)
 - Zeigt pro Pflanze die Anzahl offener Hinweise
+- **Sortiert automatisch nach Dringlichkeit** (rot vor orange vor grün vor
+  grau), abschaltbar über einen Schalter im Editor
+- **Pflanzenart-Vorlagen** auch hier verfügbar, pro Pflanze im Editor
+  auswählbar (gleiche gruppierte Liste wie bei der Einzelkarte)
 - Eigener Editor zum Hinzufügen/Entfernen von Pflanzen und deren Sensoren
 
 ## Installation über HACS
@@ -170,15 +186,17 @@ Für alle außer `battery` können zusätzlich `_min` und `_max` gesetzt werden.
 |----------------------------|---------------------------------------------------------------------------|
 | `show_advice`              | Pflegehinweise ein-/ausblenden (Standard: `true`)                        |
 | `show_sparkline`           | Bereichsanzeige je Sensor ein-/ausblenden (Standard: `true`)             |
-| `show_trend`               | Trendpfeile (↑/↓) je Sensor ein-/ausblenden (Standard: `true`)           |
-| `show_predictions`         | Gieß-Vorhersage und gelerntes Gießintervall ein-/ausblenden (Standard: `true`) |
+| `show_trend`               | Trendpfeile + Mini-Verlaufsgrafik je Sensor ein-/ausblenden (Standard: `true`) |
+| `show_predictions`         | Gieß-/Düngeprognose und gelernte Intervalle ein-/ausblenden (Standard: `true`) |
 | `advice_delay_minutes`     | Wie lange eine Grenzwertüberschreitung anhalten muss, bevor ein Hinweis erscheint (Standard: `0`) |
 | `watered_entity`           | Ein `input_datetime`-Helfer für "zuletzt gegossen" inkl. Button          |
+| `fertilized_entity`        | Ein `input_datetime`-Helfer für "zuletzt gedüngt" inkl. Button           |
+| `seasonal_adjustment`      | Lockert im Winter die "zu trocken"-Schwelle für Feuchtigkeit um 20 % (Standard: `false`) |
 | `species_preset`           | Wird von der Editor-Vorlagenauswahl gesetzt, kann aber auch manuell angegeben werden |
 
-Für `watered_entity` legst du vorher unter **Einstellungen → Geräte &
-Dienste → Helfer → Helfer hinzufügen → Datum und/oder Uhrzeit** einen
-`input_datetime`-Helfer an.
+Für `watered_entity`/`fertilized_entity` legst du vorher unter
+**Einstellungen → Geräte & Dienste → Helfer → Helfer hinzufügen → Datum
+und/oder Uhrzeit** je einen `input_datetime`-Helfer an.
 
 ## Verwendung: Plant Overview Card
 
@@ -200,7 +218,12 @@ plants:
     moisture_entity: sensor.basilikum_feuchtigkeit
     moisture_min: 30
     battery_entity: sensor.basilikum_sensor_batterie
+sort_by_status: true
 ```
+
+`sort_by_status` (Standard `true`) sortiert die Liste automatisch so, dass
+Pflanzen mit dem dringendsten Handlungsbedarf oben stehen (rot vor orange
+vor grün vor grau); `false` behält die Reihenfolge aus `plants` bei.
 
 ## Benachrichtigungen per Automation-Blueprint
 

@@ -14,7 +14,7 @@
  * (a GitHub Action then creates the matching GitHub Release automatically).
  */
 
-const CARD_VERSION = "2.4.0";
+const CARD_VERSION = "2.5.0";
 
 const SENSOR_DEFS = [
   { key: "moisture", unit: "%" },
@@ -102,6 +102,12 @@ const STRINGS = {
     wateredYesterday: "Gestern gegossen",
     wateredDaysAgo: (n) => `Vor ${n} Tagen gegossen`,
     wateredNever: "Noch nicht gegossen",
+    fertilizedNow: "Jetzt gedüngt",
+    fertilizedToday: "Heute gedüngt",
+    fertilizedYesterday: "Gestern gedüngt",
+    fertilizedDaysAgo: (n) => `Vor ${n} Tagen gedüngt`,
+    fertilizedNever: "Noch nicht gedüngt",
+    avgEvery: (avgDays) => `Ø alle ${avgDays} Tage`,
     healthOk: (pct) => `${pct} % im Sollbereich`,
     healthProblems: (pct, n) => `${pct} % · ${n} Hinweis${n === 1 ? "" : "e"}`,
     kicker: "Zimmerpflanze",
@@ -129,6 +135,10 @@ const STRINGS = {
         `Feuchtigkeit sinkt kontinuierlich – in ca. ${n} Tag${n === 1 ? "" : "en"} wahrscheinlich Gießen nötig.`,
       watering_overdue: (avgDays) =>
         `Vermutlich Zeit zum Gießen – im Schnitt wird etwa alle ${avgDays} Tage gegossen.`,
+      fertilizing_overdue: (avgDays) =>
+        `Vermutlich Zeit zum Düngen – im Schnitt wird etwa alle ${avgDays} Tage gedüngt.`,
+      dry_combo:
+        "Erde und Luft sind beide zu trocken – das verstärkt sich gegenseitig. Zusätzlich zum Gießen ggf. besprühen oder einen Luftbefeuchter aufstellen.",
     },
     editor: {
       name: "Name der Pflanze",
@@ -155,8 +165,16 @@ const STRINGS = {
       wateredEntity: "Datum/Zeit-Helfer für „zuletzt gegossen“ (optional, input_datetime)",
       wateredEntityHint:
         "Lege dazu einen input_datetime-Helfer an (Einstellungen → Geräte & Dienste → Helfer). Die Karte zeigt dann an, wann zuletzt gegossen wurde, inkl. Button.",
+      fertilizedEntity: "Datum/Zeit-Helfer für „zuletzt gedüngt“ (optional, input_datetime)",
+      fertilizedEntityHint:
+        "Genauso wie beim Gießen-Helfer: separater input_datetime-Helfer. Die Karte zeigt dann an, wann zuletzt gedüngt wurde, inkl. Button und (sobald genug Historie vorliegt) dem gelernten Düngeintervall.",
       showTrend: "Trend anzeigen (Pfeil + Mini-Verlaufsgrafik)",
-      showPredictions: "Vorhersagen anzeigen (Gieß-Prognose, gelerntes Gießintervall)",
+      showPredictions: "Vorhersagen anzeigen (Gieß-/Düngeprognose, gelernte Intervalle)",
+      seasonalAdjustment: "Saisonale Anpassung (Winter: Feuchtigkeits-Warnschwelle lockern)",
+      seasonalAdjustmentHint:
+        "Reduziert im Dezember/Januar/Februar die Schwelle für „zu trocken“ um 20 %, da Pflanzen im Winter meist weniger Wasser brauchen. Wirkt nur auf die Hinweise, nicht auf den angezeigten Min-Wert.",
+      exportYaml: "Konfiguration als YAML kopieren",
+      exportYamlCopied: "Kopiert ✓",
     },
   },
   en: {
@@ -169,6 +187,12 @@ const STRINGS = {
     wateredYesterday: "Watered yesterday",
     wateredDaysAgo: (n) => `Watered ${n} days ago`,
     wateredNever: "Not watered yet",
+    fertilizedNow: "Fertilized now",
+    fertilizedToday: "Fertilized today",
+    fertilizedYesterday: "Fertilized yesterday",
+    fertilizedDaysAgo: (n) => `Fertilized ${n} days ago`,
+    fertilizedNever: "Not fertilized yet",
+    avgEvery: (avgDays) => `avg. every ${avgDays} days`,
     healthOk: (pct) => `${pct}% within range`,
     healthProblems: (pct, n) => `${pct}% · ${n} issue${n === 1 ? "" : "s"}`,
     kicker: "Houseplant",
@@ -196,6 +220,10 @@ const STRINGS = {
         `Moisture is trending down – likely to need watering in about ${n} day${n === 1 ? "" : "s"}.`,
       watering_overdue: (avgDays) =>
         `Probably time to water – you usually water about every ${avgDays} days.`,
+      fertilizing_overdue: (avgDays) =>
+        `Probably time to fertilize – you usually fertilize about every ${avgDays} days.`,
+      dry_combo:
+        "Both the soil and the air are dry, which makes each other worse. Besides watering, consider misting or using a humidifier.",
     },
     editor: {
       name: "Plant name",
@@ -222,8 +250,16 @@ const STRINGS = {
       wateredEntity: "Date/time helper for \"last watered\" (optional, input_datetime)",
       wateredEntityHint:
         "Create an input_datetime helper (Settings → Devices & Services → Helpers). The card then shows when it was last watered, with a button to update it.",
+      fertilizedEntity: "Date/time helper for \"last fertilized\" (optional, input_datetime)",
+      fertilizedEntityHint:
+        "Same idea as the watering helper: a separate input_datetime helper. The card then shows when it was last fertilized, with a button, and (once there's enough history) the learned fertilizing interval.",
       showTrend: "Show trend (arrow + mini history graph)",
-      showPredictions: "Show predictions (watering forecast, learned watering interval)",
+      showPredictions: "Show predictions (watering/fertilizing forecast, learned intervals)",
+      seasonalAdjustment: "Seasonal adjustment (winter: loosen the moisture warning threshold)",
+      seasonalAdjustmentHint:
+        "Lowers the \"too dry\" threshold by 20% during Dec/Jan/Feb, since plants usually need less water in winter. Only affects advice, not the displayed min value.",
+      exportYaml: "Copy config as YAML",
+      exportYamlCopied: "Copied ✓",
     },
   },
 };
@@ -299,9 +335,11 @@ class PlantSensorCard extends HTMLElement {
     this._seededKeys = new Set(); // avoids re-running the history seed for the same key
     this._trendCache = {}; // entityId -> { fetchedAt, slopePerHour }
     this._trendPending = new Set(); // entityIds with an in-flight history fetch
-    this._wateringStats = null; // { fetchedAt, avgIntervalMs } for the current watered_entity
-    this._wateringStatsKey = null; // which entity _wateringStats belongs to
-    this._wateringStatsPending = false;
+    // Learned interval between events for any "date/time helper" entity
+    // (watered_entity and fertilized_entity both use this): entityId ->
+    // { fetchedAt, avgIntervalMs }.
+    this._intervalStats = {};
+    this._intervalStatsPending = new Set();
   }
 
   setConfig(config) {
@@ -392,6 +430,20 @@ class PlantSensorCard extends HTMLElement {
         minAttr = DEFAULT_BATTERY_MIN;
       }
 
+      // Optional, opt-in: soil dries out more slowly and plants generally
+      // need less water during winter, so loosen the moisture-low threshold
+      // a bit in Dec/Jan/Feb to cut down on false alarms. Advice-only - the
+      // stored config and the displayed min value are never changed.
+      if (
+        this._config.seasonal_adjustment &&
+        def.key === "moisture" &&
+        minAttr !== undefined &&
+        minAttr !== "" &&
+        [11, 0, 1].includes(new Date().getMonth())
+      ) {
+        minAttr = Number(minAttr) * 0.8;
+      }
+
       const adviceLow = t.advice[`${def.key}_low`];
       const adviceHigh = t.advice[`${def.key}_high`];
 
@@ -433,12 +485,15 @@ class PlantSensorCard extends HTMLElement {
     if (predictionsEnabled) {
       this._addMoistureForecast(advice);
       this._addWateringOverdueAdvice(advice);
+      this._addFertilizingOverdueAdvice(advice);
     }
 
-    // The learned watering-interval hint doesn't need any min/max threshold
-    // to be useful, so a watered_entity alone is enough to keep the advice
-    // section from being hidden entirely.
-    if (this._config.watered_entity) anyThresholdConfigured = true;
+    this._addCombinedDrynessAdvice(advice);
+
+    // The learned interval hints don't need any min/max threshold to be
+    // useful, so a watered/fertilized helper alone is enough to keep the
+    // advice section from being hidden entirely.
+    if (this._config.watered_entity || this._config.fertilized_entity) anyThresholdConfigured = true;
 
     // Real breaches first (critical, then warning), predictive/info hints last.
     const order = { danger: 0, warning: 1, info: 2 };
@@ -479,6 +534,24 @@ class PlantSensorCard extends HTMLElement {
     advice.push({ text: t.advice.moisture_forecast(roundedDays), entityId, severity: "info" });
   }
 
+  // Contextual advice: dry soil AND dry air at the same time make each
+  // other worse (faster evaporation from both the pot and the leaves).
+  // Rides on the *already debounced* individual advice items (rather than
+  // re-reading raw sensor values) so it respects advice_delay_minutes and
+  // doesn't flicker independently of the two warnings it's built on.
+  _addCombinedDrynessAdvice(advice) {
+    const t = this._t;
+    const moistureEntity = this._config.moisture_entity;
+    const humidityEntity = this._config.humidity_entity;
+    if (!moistureEntity || !humidityEntity) return;
+
+    const hasMoistureLow = advice.some((a) => a.entityId === moistureEntity && a.text === t.advice.moisture_low);
+    const hasHumidityLow = advice.some((a) => a.entityId === humidityEntity && a.text === t.advice.humidity_low);
+    if (hasMoistureLow && hasHumidityLow) {
+      advice.push({ text: t.advice.dry_combo, entityId: moistureEntity, severity: "warning" });
+    }
+  }
+
   // If a "last watered" helper is configured, learn the plant's usual
   // watering interval from its history and flag it when the time since the
   // last watering significantly exceeds that average.
@@ -486,24 +559,38 @@ class PlantSensorCard extends HTMLElement {
     const t = this._t;
     const entityId = this._config.watered_entity;
     if (!entityId) return;
+    this._addIntervalOverdueAdvice(advice, entityId, t.advice.watering_overdue);
+  }
 
-    this._ensureWateringStats(entityId);
+  // Same idea as watering, but for an optional "last fertilized" helper.
+  _addFertilizingOverdueAdvice(advice) {
+    const t = this._t;
+    const entityId = this._config.fertilized_entity;
+    if (!entityId) return;
+    this._addIntervalOverdueAdvice(advice, entityId, t.advice.fertilizing_overdue);
+  }
+
+  // Shared logic: given a date/time helper entity and the message builder
+  // for it, add an "overdue" advice item once the gap since its last
+  // change significantly exceeds the learned average gap.
+  _addIntervalOverdueAdvice(advice, entityId, messageFor) {
+    this._ensureIntervalStats(entityId);
 
     const stateObj = this._stateOf(entityId);
     if (!stateObj || !stateObj.state) return;
-    const lastWatered = new Date(stateObj.state).getTime();
-    if (!Number.isFinite(lastWatered)) return;
+    const lastEvent = new Date(stateObj.state).getTime();
+    if (!Number.isFinite(lastEvent)) return;
 
-    const stats = this._wateringStatsKey === entityId ? this._wateringStats : null;
+    const stats = this._intervalStats[entityId];
     if (!stats || !stats.avgIntervalMs) return;
 
-    const sinceMs = Date.now() - lastWatered;
+    const sinceMs = Date.now() - lastEvent;
     const overdueRatio = sinceMs / stats.avgIntervalMs;
     if (overdueRatio < 1.4) return;
 
     const avgDays = Math.max(1, Math.round(stats.avgIntervalMs / 86400000));
     advice.push({
-      text: t.advice.watering_overdue(avgDays),
+      text: messageFor(avgDays),
       entityId,
       severity: overdueRatio >= 2 ? "danger" : "warning",
     });
@@ -589,22 +676,19 @@ class PlantSensorCard extends HTMLElement {
   }
 
   // -------------------------------------------------------------------
-  // Learned watering interval: average gap between past waterings, derived
-  // from the watered_entity's own history (every service call to set it
-  // creates a new state change = one watering event).
+  // Learned interval between events: average gap between past changes of a
+  // "date/time helper" entity's own history (every service call to set it
+  // creates a new state change = one watering/fertilizing event). Shared by
+  // watered_entity and fertilized_entity, keyed by entity so both can be
+  // learned independently at the same time.
   // -------------------------------------------------------------------
-  _ensureWateringStats(entityId) {
+  _ensureIntervalStats(entityId) {
     if (!entityId || !this._hass || typeof this._hass.callApi !== "function") return;
     const now = Date.now();
-    if (
-      this._wateringStatsKey === entityId &&
-      this._wateringStats &&
-      now - this._wateringStats.fetchedAt < WATERING_CACHE_TTL_MS
-    ) {
-      return;
-    }
-    if (this._wateringStatsPending) return;
-    this._wateringStatsPending = true;
+    const cached = this._intervalStats[entityId];
+    if (cached && now - cached.fetchedAt < WATERING_CACHE_TTL_MS) return;
+    if (this._intervalStatsPending.has(entityId)) return;
+    this._intervalStatsPending.add(entityId);
 
     (async () => {
       let avgIntervalMs = null;
@@ -625,9 +709,8 @@ class PlantSensorCard extends HTMLElement {
       } catch (e) {
         // Recorder history unavailable - no learned interval this time.
       }
-      this._wateringStats = { fetchedAt: now, avgIntervalMs };
-      this._wateringStatsKey = entityId;
-      this._wateringStatsPending = false;
+      this._intervalStats[entityId] = { fetchedAt: now, avgIntervalMs };
+      this._intervalStatsPending.delete(entityId);
       this._render();
     })();
   }
@@ -703,13 +786,15 @@ class PlantSensorCard extends HTMLElement {
   }
 
   // -------------------------------------------------------------------
-  // "Last watered" tracking via an optional input_datetime helper.
+  // "Last watered" / "last fertilized" tracking via an optional
+  // input_datetime helper each. Both use the exact same behavior (show
+  // when it last happened + a button to set it to now + the learned
+  // average interval once known), so this one method drives both rows.
   // -------------------------------------------------------------------
-  _renderWatered() {
-    const wrap = this.querySelector(".psc-watered");
+  _renderDateHelper(wrapSelector, entityId, strings, iconKey, btnId) {
+    const wrap = this.querySelector(wrapSelector);
     if (!wrap) return;
 
-    const entityId = this._config.watered_entity;
     if (!entityId) {
       wrap.innerHTML = "";
       return;
@@ -717,32 +802,67 @@ class PlantSensorCard extends HTMLElement {
 
     const t = this._t;
     const stateObj = this._stateOf(entityId);
-    let label = t.wateredNever;
+    let label = strings.never;
 
     if (stateObj && stateObj.state && stateObj.state !== "unknown" && stateObj.state !== "unavailable") {
-      const wateredDate = new Date(stateObj.state);
-      if (!Number.isNaN(wateredDate.getTime())) {
-        const days = Math.floor((Date.now() - wateredDate.getTime()) / 86400000);
-        if (days <= 0) label = t.wateredToday;
-        else if (days === 1) label = t.wateredYesterday;
-        else label = t.wateredDaysAgo(days);
+      const eventDate = new Date(stateObj.state);
+      if (!Number.isNaN(eventDate.getTime())) {
+        const days = Math.floor((Date.now() - eventDate.getTime()) / 86400000);
+        if (days <= 0) label = strings.today;
+        else if (days === 1) label = strings.yesterday;
+        else label = strings.daysAgo(days);
       }
     }
 
+    // Passive extra line: once a learned interval is known for this
+    // helper, show it alongside the "X days ago" label (no advice, just
+    // context) - reuses the same cache the overdue-advice logic fetches.
+    if (this._config.show_predictions !== false) {
+      this._ensureIntervalStats(entityId);
+    }
+    const stats = this._intervalStats[entityId];
+    let avgLabel = "";
+    if (stats && stats.avgIntervalMs) {
+      const avgDays = Math.max(1, Math.round(stats.avgIntervalMs / 86400000));
+      avgLabel = `<span class="psc-watered-avg"> · ${t.avgEvery(avgDays)}</span>`;
+    }
+
     wrap.innerHTML = `
-      <span class="psc-watered-label">${label}</span>
-      <button class="psc-btn" id="psc-water-btn">
-        ${svgIcon("watering_can")}
-        <span>${t.wateredNow}</span>
+      <span class="psc-watered-label">${label}${avgLabel}</span>
+      <button class="psc-btn" id="${btnId}">
+        ${svgIcon(iconKey)}
+        <span>${strings.now}</span>
       </button>
     `;
 
-    wrap.querySelector("#psc-water-btn").addEventListener("click", () => {
+    wrap.querySelector(`#${btnId}`).addEventListener("click", () => {
       this._hass.callService("input_datetime", "set_datetime", {
         entity_id: entityId,
         datetime: new Date().toISOString().replace("T", " ").substring(0, 19),
       });
     });
+  }
+
+  _renderWatered() {
+    const t = this._t;
+    this._renderDateHelper(
+      ".psc-watered",
+      this._config.watered_entity,
+      { now: t.wateredNow, today: t.wateredToday, yesterday: t.wateredYesterday, daysAgo: t.wateredDaysAgo, never: t.wateredNever },
+      "watering_can",
+      "psc-water-btn"
+    );
+  }
+
+  _renderFertilized() {
+    const t = this._t;
+    this._renderDateHelper(
+      ".psc-fertilized",
+      this._config.fertilized_entity,
+      { now: t.fertilizedNow, today: t.fertilizedToday, yesterday: t.fertilizedYesterday, daysAgo: t.fertilizedDaysAgo, never: t.fertilizedNever },
+      "conductivity",
+      "psc-fertilize-btn"
+    );
   }
 
   _render() {
@@ -772,6 +892,7 @@ class PlantSensorCard extends HTMLElement {
             <div class="psc-metrics"></div>
             <div class="psc-divider" style="display:none;"></div>
             <div class="psc-watered"></div>
+            <div class="psc-fertilized"></div>
             <div class="psc-advice"></div>
           </div>
           <style>
@@ -882,9 +1003,10 @@ class PlantSensorCard extends HTMLElement {
 
             .psc-divider { height: 1px; background: var(--psc-border); }
 
-            .psc-watered { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-            .psc-watered:empty { display: none; }
+            .psc-watered, .psc-fertilized { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+            .psc-watered:empty, .psc-fertilized:empty { display: none; }
             .psc-watered-label { font-size: 0.78rem; color: var(--psc-text-2); line-height: 1.35; }
+            .psc-watered-avg { opacity: 0.8; }
             .psc-btn {
               display: inline-flex; align-items: center; gap: 7px;
               background: linear-gradient(135deg, var(--psc-accent-1), var(--psc-accent-2));
@@ -1052,9 +1174,10 @@ class PlantSensorCard extends HTMLElement {
     }
 
     this._renderWatered();
+    this._renderFertilized();
     this._renderAdvice();
 
-    const hasWatered = !!this._config.watered_entity;
+    const hasWatered = !!this._config.watered_entity || !!this._config.fertilized_entity;
     this.querySelector(".psc-divider").style.display = hasWatered ? "" : "none";
   }
 
@@ -1277,6 +1400,13 @@ class PlantSensorCardEditor extends HTMLElement {
       ></ha-entity-picker>
       <div class="psc-hint">${t.editor.wateredEntityHint}</div>
 
+      <ha-entity-picker
+        id="psc-fertilized-entity"
+        label="${t.editor.fertilizedEntity}"
+        include-domains='["input_datetime"]'
+      ></ha-entity-picker>
+      <div class="psc-hint">${t.editor.fertilizedEntityHint}</div>
+
       <div class="psc-switch-row">
         <span>${t.editor.showAdvice}</span>
         <ha-switch id="psc-show-advice"></ha-switch>
@@ -1293,6 +1423,13 @@ class PlantSensorCardEditor extends HTMLElement {
         <span>${t.editor.showPredictions}</span>
         <ha-switch id="psc-show-predictions"></ha-switch>
       </div>
+      <div class="psc-switch-row">
+        <span>${t.editor.seasonalAdjustment}</span>
+        <ha-switch id="psc-seasonal-adjustment"></ha-switch>
+      </div>
+      <div class="psc-hint">${t.editor.seasonalAdjustmentHint}</div>
+
+      <mwc-button id="psc-export-yaml" outlined>${t.editor.exportYaml}</mwc-button>
     `;
 
     // Event listeners are wired up exactly once, here in _buildStructure().
@@ -1343,6 +1480,12 @@ class PlantSensorCardEditor extends HTMLElement {
       this._valueChanged("watered_entity", ev.detail.value);
     });
 
+    const fertilizedPicker = this.content.querySelector("#psc-fertilized-entity");
+    fertilizedPicker.addEventListener("value-changed", (ev) => {
+      ev.stopPropagation();
+      this._valueChanged("fertilized_entity", ev.detail.value);
+    });
+
     // Toggles
     const adviceSwitch = this.content.querySelector("#psc-show-advice");
     adviceSwitch.addEventListener("change", (e) => this._valueChanged("show_advice", e.target.checked));
@@ -1355,6 +1498,48 @@ class PlantSensorCardEditor extends HTMLElement {
 
     const predictionsSwitch = this.content.querySelector("#psc-show-predictions");
     predictionsSwitch.addEventListener("change", (e) => this._valueChanged("show_predictions", e.target.checked));
+
+    const seasonalSwitch = this.content.querySelector("#psc-seasonal-adjustment");
+    seasonalSwitch.addEventListener("change", (e) => this._valueChanged("seasonal_adjustment", e.target.checked));
+
+    // Config export: small, dependency-free YAML serializer good enough for
+    // this card's flat config (strings/numbers/booleans only). Falls back
+    // to a prompt() dialog when the clipboard API isn't available/blocked.
+    const exportBtn = this.content.querySelector("#psc-export-yaml");
+    exportBtn.addEventListener("click", () => {
+      const yaml = this._configToYaml();
+      const t = this._t;
+      const restoreLabel = () => {
+        exportBtn.textContent = t.editor.exportYaml;
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard
+          .writeText(yaml)
+          .then(() => {
+            exportBtn.textContent = t.editor.exportYamlCopied;
+            setTimeout(restoreLabel, 2000);
+          })
+          .catch(() => window.prompt("YAML:", yaml));
+      } else {
+        window.prompt("YAML:", yaml);
+      }
+    });
+  }
+
+  // Flat YAML serialization of the current config (good enough here since
+  // every value is a string, number or boolean - no nested objects/arrays).
+  _configToYaml() {
+    const cfg = this._config || {};
+    return Object.keys(cfg)
+      .map((key) => {
+        const value = cfg[key];
+        if (typeof value === "string") {
+          const needsQuotes = value === "" || /^[\s]|[\s]$|[:#]/.test(value);
+          return `${key}: ${needsQuotes ? JSON.stringify(value) : value}`;
+        }
+        return `${key}: ${value}`;
+      })
+      .join("\n");
   }
 
   // Applies the current config to the already-built DOM. Called on every
@@ -1402,6 +1587,12 @@ class PlantSensorCardEditor extends HTMLElement {
       if (wateredPicker !== active) wateredPicker.value = cfg.watered_entity || "";
     }
 
+    const fertilizedPicker = root.querySelector("#psc-fertilized-entity");
+    if (fertilizedPicker) {
+      fertilizedPicker.hass = this._hass;
+      if (fertilizedPicker !== active) fertilizedPicker.value = cfg.fertilized_entity || "";
+    }
+
     const adviceSwitch = root.querySelector("#psc-show-advice");
     if (adviceSwitch) adviceSwitch.checked = cfg.show_advice !== false;
 
@@ -1413,6 +1604,9 @@ class PlantSensorCardEditor extends HTMLElement {
 
     const predictionsSwitch = root.querySelector("#psc-show-predictions");
     if (predictionsSwitch) predictionsSwitch.checked = cfg.show_predictions !== false;
+
+    const seasonalSwitch = root.querySelector("#psc-seasonal-adjustment");
+    if (seasonalSwitch) seasonalSwitch.checked = cfg.seasonal_adjustment === true;
   }
 }
 
