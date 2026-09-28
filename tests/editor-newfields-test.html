@@ -1,0 +1,87 @@
+<!doctype html>
+<html><head><meta charset="utf-8" /></head><body>
+<plant-sensor-card-editor id="editor"></plant-sensor-card-editor>
+<script>
+  class HaTextfieldStub extends HTMLElement {
+    connectedCallback() { if (this._input) return; this.innerHTML = `<input type="${this.getAttribute("type")||"text"}" />`; this._input = this.querySelector("input"); }
+    get value() { return this._input ? this._input.value : this._pending || ""; }
+    set value(v) { if (!this._input) { this._pending = v; return; } this._input.value = v ?? ""; }
+  }
+  customElements.define("ha-textfield", HaTextfieldStub);
+  class HaSwitchStub extends HTMLElement {
+    connectedCallback() { if (this._cb) return; this.innerHTML = `<input type="checkbox" />`; this._cb = this.querySelector("input"); }
+    get checked() { return this._cb ? this._cb.checked : !!this._pending; }
+    set checked(v) { if (!this._cb) { this._pending = v; return; } this._cb.checked = !!v; }
+  }
+  customElements.define("ha-switch", HaSwitchStub);
+  class HaEntityPickerStub extends HTMLElement {
+    connectedCallback() { if (this._select) return; this.innerHTML = `<select></select>`; this._select = this.querySelector("select");
+      this._select.addEventListener("change", () => { this._value = this._select.value; this.dispatchEvent(new CustomEvent("value-changed", { detail: { value: this._select.value }, bubbles: true, composed: true })); });
+      this._populate(); }
+    set hass(h) { this._hass = h; this._populate(); }
+    get hass() { return this._hass; }
+    set value(v) { this._value = v || ""; if (this._select) this._select.value = this._value; }
+    get value() { return this._value || ""; }
+    _populate() { if (!this._select) return; const ids = this._hass ? Object.keys(this._hass.states) : [];
+      const prev = this._select.value;
+      this._select.innerHTML = `<option value="">--</option>` + ids.map((id) => `<option value="${id}">${id}</option>`).join("");
+      if (this._value) this._select.value = this._value; else if (prev) this._select.value = prev; }
+  }
+  customElements.define("ha-entity-picker", HaEntityPickerStub);
+  class MwcButtonStub extends HTMLElement {
+    connectedCallback() { if (this._btn) return; this._btn = document.createElement("button"); this._btn.textContent = this.textContent; this.textContent = ""; this.appendChild(this._btn);
+      this._btn.addEventListener("click", () => this.dispatchEvent(new Event("click"))); }
+    set textContent(v) { if (this._btn) { this._btn.textContent = v; } else { super.textContent !== undefined && (this.__pendingText = v); Node.prototype.__proto__; } }
+  }
+  // simpler: don't override textContent, just query the inner button and set label directly
+  customElements.define("mwc-button", class extends HTMLElement {
+    connectedCallback() { if (this._btn) return; this._label = this.textContent; this.innerHTML = ""; this._btn = document.createElement("button"); this._btn.textContent = this._label; this.appendChild(this._btn);
+      this._btn.addEventListener("click", () => this.dispatchEvent(new Event("click"))); }
+  });
+</script>
+<script src="../plant-sensor-card.js"></script>
+<script>
+  const log = (msg) => console.log(msg);
+  const failures = [];
+  const assert = (cond, msg) => { if (!cond) { failures.push(msg); log("FAIL: " + msg); } else log("ok: " + msg); };
+
+  Object.defineProperty(navigator, "clipboard", {
+    configurable: true,
+    value: { writeText: (text) => { window.__clipboardText = text; return Promise.resolve(); } },
+  });
+
+  const hass = {
+    language: "de", themes: { darkMode: false },
+    states: { "input_datetime.fert": { entity_id: "input_datetime.fert", state: "2026-01-01 10:00:00", attributes: {} } },
+  };
+
+  const editor = document.getElementById("editor");
+  let currentConfig = { type: "custom:plant-sensor-card", name: "Test" };
+  editor.addEventListener("config-changed", (ev) => { currentConfig = ev.detail.config; editor.setConfig(currentConfig); });
+
+  editor.setConfig(currentConfig);
+  editor.hass = hass;
+
+  const fertPicker = editor.content.querySelector("#psc-fertilized-entity");
+  assert(!!fertPicker, "fertilized entity picker exists in editor");
+  fertPicker._select.value = "input_datetime.fert";
+  fertPicker._select.dispatchEvent(new Event("change"));
+  assert(currentConfig.fertilized_entity === "input_datetime.fert", "fertilized_entity set via picker");
+
+  const seasonalSwitch = editor.content.querySelector("#psc-seasonal-adjustment");
+  assert(!!seasonalSwitch, "seasonal adjustment switch exists");
+  seasonalSwitch._cb.checked = true;
+  seasonalSwitch._cb.dispatchEvent(new Event("change", { bubbles: true }));
+  assert(currentConfig.seasonal_adjustment === true, "seasonal_adjustment set via switch");
+
+  const exportBtn = editor.content.querySelector("#psc-export-yaml");
+  assert(!!exportBtn, "export-yaml button exists");
+  exportBtn._btn.click();
+  setTimeout(() => {
+    assert(typeof window.__clipboardText === "string" && window.__clipboardText.includes("name: Test"), "YAML export wrote config to clipboard");
+    assert(window.__clipboardText.includes("fertilized_entity: input_datetime.fert"), "exported YAML includes fertilized_entity");
+    log(failures.length ? "DONE WITH FAILURES: " + failures.length : "ALL PASSED");
+    window.__testResult = { ok: failures.length === 0, failures, clipboard: window.__clipboardText };
+  }, 50);
+</script>
+</body></html>

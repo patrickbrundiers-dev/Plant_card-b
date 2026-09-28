@@ -78,12 +78,21 @@ gerade geöffnet ist.
 - **Saisonale Anpassung (optional)**: lockert im Winter (Dez/Jan/Feb) die
   "zu trocken"-Schwelle für Feuchtigkeit um 20 %, um Fehlalarme zu
   vermeiden – wirkt nur auf Hinweise, nicht auf den angezeigten Min-Wert
-- **Konfiguration als YAML kopieren**: Button im Editor, um die aktuelle
-  Kartenkonfiguration zum Sichern oder Teilen in die Zwischenablage zu
-  kopieren
+- **Konfiguration als YAML kopieren & einfügen**: Button im Editor, um die
+  aktuelle Kartenkonfiguration zum Sichern oder Teilen in die Zwischenablage
+  zu kopieren; über ein Textfeld direkt darunter lässt sich eine zuvor
+  kopierte YAML-Konfiguration auch wieder einfügen und übernehmen – praktisch
+  zum Duplizieren einer Pflanze oder zum Wiederherstellen einer Sicherung
+- **Kompaktmodus**: über einen Schalter im Editor aktivierbar, macht die
+  Karte deutlich kleiner (schmalerer Ring, ohne Mini-Verlaufsgrafik) – für
+  Dashboards mit vielen Pflanzen nebeneinander
+- **Passendes Symbol ohne Bild**: ist kein Bild hinterlegt, zeigt die Karte
+  je nach gewählter Pflanzenart-Vorlage ein passendes Symbol (Kaktus für
+  Sukkulenten, Kräuter-Symbol für Kräuter, Blatt für Zimmerpflanzen) statt
+  eines generischen Platzhalters
 - Die Batterie bekommt automatisch einen sinnvollen Standard-Grenzwert (20 %)
-- Verfügbar auf Deutsch und Englisch (folgt automatisch der
-  Home-Assistant-Spracheinstellung)
+- Verfügbar auf Deutsch, Englisch, Französisch und Spanisch (folgt
+  automatisch der Home-Assistant-Spracheinstellung)
 - Klick auf einen Wert oder Hinweis öffnet den "Mehr Informationen"-Dialog
   der zugehörigen Entität (inkl. Verlaufsgrafik, wie von Home Assistant
   gewohnt)
@@ -97,6 +106,8 @@ gerade geöffnet ist.
   grau), abschaltbar über einen Schalter im Editor
 - **Pflanzenart-Vorlagen** auch hier verfügbar, pro Pflanze im Editor
   auswählbar (gleiche gruppierte Liste wie bei der Einzelkarte)
+- **Kompaktmodus**: schaltbar im Editor, zeigt schmalere Zeilen – nützlich
+  bei längeren Pflanzenlisten
 - Eigener Editor zum Hinzufügen/Entfernen von Pflanzen und deren Sensoren
 
 ## Installation über HACS
@@ -193,6 +204,7 @@ Für alle außer `battery` können zusätzlich `_min` und `_max` gesetzt werden.
 | `fertilized_entity`        | Ein `input_datetime`-Helfer für "zuletzt gedüngt" inkl. Button           |
 | `seasonal_adjustment`      | Lockert im Winter die "zu trocken"-Schwelle für Feuchtigkeit um 20 % (Standard: `false`) |
 | `species_preset`           | Wird von der Editor-Vorlagenauswahl gesetzt, kann aber auch manuell angegeben werden |
+| `compact`                  | Kompaktere Darstellung für Dashboards mit vielen Pflanzen (Standard: `false`) |
 
 Für `watered_entity`/`fertilized_entity` legst du vorher unter
 **Einstellungen → Geräte & Dienste → Helfer → Helfer hinzufügen → Datum
@@ -225,6 +237,9 @@ sort_by_status: true
 Pflanzen mit dem dringendsten Handlungsbedarf oben stehen (rot vor orange
 vor grün vor grau); `false` behält die Reihenfolge aus `plants` bei.
 
+`compact` (Standard `false`) zeigt die Liste mit schmaleren Zeilen an –
+praktisch, wenn viele Pflanzen auf einmal auf dem Dashboard stehen.
+
 ## Benachrichtigungen per Automation-Blueprint
 
 Die Karte selbst kann keine Push-Benachrichtigungen senden – dafür liegt ein
@@ -240,6 +255,22 @@ Blueprint bei, das unabhängig vom Dashboard funktioniert:
 Wird nur ein Grenzwert gebraucht (z. B. nur "unter"), den jeweils anderen
 auf einen Wert setzen, der praktisch nie erreicht wird (z. B. `-1` für
 "oberer Grenzwert" bei einem Prozentsensor).
+
+## Entwicklung & Tests
+
+Im Ordner `tests/` liegt eine Playwright-basierte Testsuite, die den
+Editor und die Kartenlogik gegen kleine Attrappen der echten
+Home-Assistant-Frontend-Elemente prüft (Sensorauswahl, Vorlagen,
+Schwellenwert-Hinweise, YAML-Export/-Import, gelernte Intervalle, u. a.).
+
+```bash
+npm install
+npx playwright install --with-deps chromium
+npm test
+```
+
+Ein GitHub-Actions-Workflow (`.github/workflows/test.yml`) führt die
+gleiche Suite bei jedem Push und Pull Request automatisch aus.
 
 ## Lizenz
 

@@ -1,0 +1,95 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /></head>
+<body>
+<plant-sensor-card id="card"></plant-sensor-card>
+<script src="../plant-sensor-card.js"></script>
+<script>
+  const log = (msg) => console.log(msg);
+  const failures = [];
+  const assert = (cond, msg) => {
+    if (!cond) { failures.push(msg); log("FAIL: " + msg); }
+    else log("ok: " + msg);
+  };
+
+  const now = Date.now();
+  const iso = (ms) => new Date(ms).toISOString();
+
+  // Fertilized history: every ~14 days for a while, last one 30 days ago -> overdue.
+  const fertilizedHistory = [
+    { state: iso(now - 70 * 86400000), last_changed: iso(now - 70 * 86400000) },
+    { state: iso(now - 56 * 86400000), last_changed: iso(now - 56 * 86400000) },
+    { state: iso(now - 42 * 86400000), last_changed: iso(now - 42 * 86400000) },
+    { state: iso(now - 30 * 86400000), last_changed: iso(now - 30 * 86400000) },
+  ];
+
+  const states = {
+    "sensor.moisture": { entity_id: "sensor.moisture", state: "10", attributes: { unit_of_measurement: "%" } },
+    "sensor.humidity": { entity_id: "sensor.humidity", state: "20", attributes: { unit_of_measurement: "%" } },
+    "input_datetime.fertilized": {
+      entity_id: "input_datetime.fertilized",
+      state: iso(now - 30 * 86400000).replace("T", " ").substring(0, 19),
+      attributes: {},
+    },
+  };
+
+  const hass = {
+    language: "de",
+    themes: { darkMode: false },
+    states,
+    callApi: async (method, path) => {
+      if (path.includes("input_datetime.fertilized")) return [fertilizedHistory];
+      return [[]];
+    },
+    callService: (domain, service, data) => { window.__lastServiceCall = { domain, service, data }; },
+  };
+
+  const card = document.getElementById("card");
+  card.setConfig({
+    type: "custom:plant-sensor-card",
+    name: "Testpflanze",
+    moisture_entity: "sensor.moisture",
+    moisture_min: 20,
+    humidity_entity: "sensor.humidity",
+    humidity_min: 30,
+    fertilized_entity: "input_datetime.fertilized",
+    advice_delay_minutes: 0,
+  });
+  card.hass = hass;
+
+  let attempts = 0;
+  const check = () => {
+    attempts++;
+    const adviceTexts = Array.from(card.querySelectorAll(".psc-advice-item")).map((el) => el.textContent.trim());
+    const hasFertilizeOverdue = adviceTexts.some((t) => /Zeit zum Düngen/.test(t));
+    const hasDryCombo = adviceTexts.some((t) => /Erde und Luft sind beide zu trocken/.test(t));
+    const fertilizedWrap = card.querySelector(".psc-fertilized");
+
+    if ((!hasFertilizeOverdue || !fertilizedWrap || !fertilizedWrap.textContent.trim()) && attempts < 30) {
+      setTimeout(check, 100);
+      return;
+    }
+
+    assert(hasFertilizeOverdue, "fertilizing overdue advice appears (learned ~14d interval, last 30d ago)");
+    assert(hasDryCombo, "combined dry-soil + dry-air advice appears when both breach low");
+    assert(!!fertilizedWrap && /Vor \d+ Tagen gedüngt/.test(fertilizedWrap.textContent), "fertilized row shows 'X days ago' label");
+    assert(/Ø alle \d+ Tage/.test(fertilizedWrap.textContent), "fertilized row shows learned average interval");
+
+    // Click the fertilize button and check the service call.
+    const btn = fertilizedWrap.querySelector("#psc-fertilize-btn");
+    assert(!!btn, "fertilize-now button exists");
+    btn.click();
+    assert(
+      window.__lastServiceCall &&
+        window.__lastServiceCall.domain === "input_datetime" &&
+        window.__lastServiceCall.data.entity_id === "input_datetime.fertilized",
+      "fertilize-now button calls input_datetime.set_datetime on the right entity"
+    );
+
+    log(failures.length ? "DONE WITH FAILURES: " + failures.length : "ALL PASSED");
+    window.__testResult = { ok: failures.length === 0, failures, adviceTexts };
+  };
+  setTimeout(check, 100);
+</script>
+</body>
+</html>

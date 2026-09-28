@@ -10,11 +10,15 @@
  *
  * https://github.com/patrickbrundiers-dev/Plant_card-b
  *
- * See CARD_VERSION below - bump it and push to publish a new release
+ * See PLANT_SENSOR_CARD_VERSION below - bump it and push to publish a new release
  * (a GitHub Action then creates the matching GitHub Release automatically).
  */
 
-const CARD_VERSION = "2.5.0";
+
+(function () {
+"use strict";
+
+const PLANT_SENSOR_CARD_VERSION = "2.6.0";
 
 const SENSOR_DEFS = [
   { key: "moisture", unit: "%" },
@@ -68,6 +72,11 @@ const ICON_PATHS = {
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11.25 11.5h1v5h1"/>',
   trend_up: '<path d="M4 16l6-6 4 4 6-8"/><path d="M14 6h6v6"/>',
   trend_down: '<path d="M4 8l6 6 4-4 6 8"/><path d="M14 18h6v-6"/>',
+  // Ring fallback icons, picked by the selected species preset's category
+  // (houseplant/succulent/herb) when no photo is set - see _speciesIconKey().
+  cactus:
+    '<path d="M9 21V9a3 3 0 0 1 6 0v12"/><path d="M9 12H6a2 2 0 0 1-2-2V7"/><path d="M15 15h3a2 2 0 0 0 2-2V9"/>',
+  herb: '<path d="M12 21V11"/><path d="M12 11C12 6 8 4 5 4c0 4 2 7 7 7Z"/><path d="M12 11c0-4 3-6 7-6 0 4-3 7-7 7Z"/>',
 };
 
 function svgIcon(key, extra = "") {
@@ -173,8 +182,13 @@ const STRINGS = {
       seasonalAdjustment: "Saisonale Anpassung (Winter: Feuchtigkeits-Warnschwelle lockern)",
       seasonalAdjustmentHint:
         "Reduziert im Dezember/Januar/Februar die Schwelle für „zu trocken“ um 20 %, da Pflanzen im Winter meist weniger Wasser brauchen. Wirkt nur auf die Hinweise, nicht auf den angezeigten Min-Wert.",
+      compact: "Kompaktmodus (kleinere Darstellung für viele Pflanzen)",
       exportYaml: "Konfiguration als YAML kopieren",
       exportYamlCopied: "Kopiert ✓",
+      importYamlPlaceholder: "YAML hier einfügen, um eine Konfiguration wiederherzustellen …",
+      importYamlApply: "YAML übernehmen",
+      importYamlApplied: "Übernommen ✓",
+      importYamlError: "Konnte YAML nicht lesen ✗",
     },
   },
   en: {
@@ -258,15 +272,204 @@ const STRINGS = {
       seasonalAdjustment: "Seasonal adjustment (winter: loosen the moisture warning threshold)",
       seasonalAdjustmentHint:
         "Lowers the \"too dry\" threshold by 20% during Dec/Jan/Feb, since plants usually need less water in winter. Only affects advice, not the displayed min value.",
+      compact: "Compact mode (smaller layout for many plants)",
       exportYaml: "Copy config as YAML",
       exportYamlCopied: "Copied ✓",
+      importYamlPlaceholder: "Paste YAML here to restore a configuration…",
+      importYamlApply: "Apply YAML",
+      importYamlApplied: "Applied ✓",
+      importYamlError: "Could not read YAML ✗",
+    },
+  },
+  fr: {
+    defaultName: "Plante",
+    noSensors: "Aucun capteur configuré. Modifiez la carte pour en ajouter.",
+    careTitle: "À faire",
+    careOk: "Toutes les valeurs sont correctes – rien à faire pour le moment.",
+    wateredNow: "Arrosée à l'instant",
+    wateredToday: "Arrosée aujourd'hui",
+    wateredYesterday: "Arrosée hier",
+    wateredDaysAgo: (n) => `Arrosée il y a ${n} jour${n === 1 ? "" : "s"}`,
+    wateredNever: "Pas encore arrosée",
+    fertilizedNow: "Fertilisée à l'instant",
+    fertilizedToday: "Fertilisée aujourd'hui",
+    fertilizedYesterday: "Fertilisée hier",
+    fertilizedDaysAgo: (n) => `Fertilisée il y a ${n} jour${n === 1 ? "" : "s"}`,
+    fertilizedNever: "Pas encore fertilisée",
+    avgEvery: (avgDays) => `env. tous les ${avgDays} jours`,
+    healthOk: (pct) => `${pct} % dans la plage`,
+    healthProblems: (pct, n) => `${pct} % · ${n} alerte${n === 1 ? "" : "s"}`,
+    kicker: "Plante d'intérieur",
+    labels: {
+      moisture: "Humidité",
+      temperature: "Température",
+      illuminance: "Lumière",
+      conductivity: "Conductivité / Engrais",
+      humidity: "Humidité de l'air",
+      battery: "Batterie",
+    },
+    advice: {
+      moisture_low: "Le sol est trop sec – arrosez la plante bientôt.",
+      moisture_high: "Le sol est trop humide – arrêtez d'arroser et vérifiez le drainage/le pot.",
+      temperature_low: "Trop froid pour cette plante – placez-la dans un endroit plus chaud, à l'abri des courants d'air.",
+      temperature_high: "Trop chaud – protégez-la de la chaleur directe (chauffage/soleil).",
+      illuminance_low: "Pas assez de lumière – rapprochez-la d'une fenêtre ou ajoutez une lampe de croissance.",
+      illuminance_high: "Trop de lumière directe – éloignez-la de la fenêtre ou ajoutez de l'ombre.",
+      conductivity_low: "Nutriments faibles – fertilisez dans les prochains jours.",
+      conductivity_high: "Trop d'engrais dans le substrat – rincez à l'eau claire et arrêtez la fertilisation.",
+      humidity_low: "L'air est trop sec – vaporisez la plante ou utilisez un humidificateur.",
+      humidity_high: "Humidité très élevée – améliorez la ventilation (risque de champignons).",
+      battery_low: "La batterie du capteur faiblit – à remplacer bientôt.",
+      moisture_forecast: (n) =>
+        `L'humidité diminue régulièrement – arrosage probablement nécessaire dans environ ${n} jour${n === 1 ? "" : "s"}.`,
+      watering_overdue: (avgDays) =>
+        `Probablement temps d'arroser – vous arrosez en général tous les ${avgDays} jours.`,
+      fertilizing_overdue: (avgDays) =>
+        `Probablement temps de fertiliser – vous fertilisez en général tous les ${avgDays} jours.`,
+      dry_combo:
+        "Le sol et l'air sont tous les deux trop secs, ce qui aggrave la situation. En plus d'arroser, pensez à vaporiser ou à utiliser un humidificateur.",
+    },
+    editor: {
+      name: "Nom de la plante",
+      species: "Espèce (optionnel)",
+      image: "URL de l'image (optionnel)",
+      sensorsTitle: "Capteurs (à choisir dans les menus déroulants)",
+      thresholdHint:
+        "Min/Max sont optionnels. Une fois définis, un dépassement affiche automatiquement un conseil d'entretien sous la carte.",
+      min: "Min",
+      max: "Max",
+      showAdvice: "Afficher les conseils d'entretien",
+      showSparkline: "Afficher l'indicateur de plage (position entre min/max)",
+      speciesPreset: "Modèle d'espèce",
+      speciesPresetHint:
+        "Remplit les champs Min/Max avec des valeurs typiques. Les champs de chaque capteur restent modifiables ensuite, vous pouvez donc les ajuster ou ignorer le modèle et saisir vos propres seuils.",
+      speciesPresetNone: "Aucun modèle (définir les seuils manuellement)",
+      speciesCategory: {
+        houseplant: "Plantes d'intérieur",
+        succulent: "Succulentes & cactus",
+        herb: "Herbes & balcon",
+      },
+      adviceDelay: "Délai avant l'apparition d'un conseil (minutes)",
+      adviceDelayHint: "Évite les fausses alertes dues à de brefs pics, par ex. juste après l'arrosage.",
+      wateredEntity: "Assistant date/heure pour « dernier arrosage » (optionnel, input_datetime)",
+      wateredEntityHint:
+        "Créez un assistant input_datetime (Paramètres → Appareils et services → Assistants). La carte affichera alors la date du dernier arrosage, avec un bouton.",
+      fertilizedEntity: "Assistant date/heure pour « dernière fertilisation » (optionnel, input_datetime)",
+      fertilizedEntityHint:
+        "Comme pour l'arrosage : un assistant input_datetime séparé. La carte affichera alors la date de la dernière fertilisation, avec un bouton et (dès qu'il y a assez d'historique) l'intervalle de fertilisation appris.",
+      showTrend: "Afficher la tendance (flèche + mini-graphique)",
+      showPredictions: "Afficher les prévisions (arrosage/fertilisation, intervalles appris)",
+      seasonalAdjustment: "Ajustement saisonnier (hiver : seuil d'alerte d'humidité assoupli)",
+      seasonalAdjustmentHint:
+        "Réduit de 20 % le seuil « trop sec » en décembre/janvier/février, les plantes ayant généralement besoin de moins d'eau en hiver. N'affecte que les conseils, pas la valeur min affichée.",
+      compact: "Mode compact (affichage réduit pour de nombreuses plantes)",
+      exportYaml: "Copier la configuration en YAML",
+      exportYamlCopied: "Copié ✓",
+      importYamlPlaceholder: "Collez le YAML ici pour restaurer une configuration…",
+      importYamlApply: "Appliquer le YAML",
+      importYamlApplied: "Appliqué ✓",
+      importYamlError: "Impossible de lire le YAML ✗",
+    },
+  },
+  es: {
+    defaultName: "Planta",
+    noSensors: "No hay sensores configurados. Edita la tarjeta para añadir alguno.",
+    careTitle: "Qué hacer",
+    careOk: "Todo está dentro del rango – nada que hacer por ahora.",
+    wateredNow: "Regada ahora",
+    wateredToday: "Regada hoy",
+    wateredYesterday: "Regada ayer",
+    wateredDaysAgo: (n) => `Regada hace ${n} día${n === 1 ? "" : "s"}`,
+    wateredNever: "Aún no regada",
+    fertilizedNow: "Abonada ahora",
+    fertilizedToday: "Abonada hoy",
+    fertilizedYesterday: "Abonada ayer",
+    fertilizedDaysAgo: (n) => `Abonada hace ${n} día${n === 1 ? "" : "s"}`,
+    fertilizedNever: "Aún no abonada",
+    avgEvery: (avgDays) => `cada ${avgDays} días de media`,
+    healthOk: (pct) => `${pct} % dentro del rango`,
+    healthProblems: (pct, n) => `${pct} % · ${n} aviso${n === 1 ? "" : "s"}`,
+    kicker: "Planta de interior",
+    labels: {
+      moisture: "Humedad",
+      temperature: "Temperatura",
+      illuminance: "Luz",
+      conductivity: "Conductividad / Fertilidad",
+      humidity: "Humedad ambiental",
+      battery: "Batería",
+    },
+    advice: {
+      moisture_low: "El sustrato está demasiado seco – riega la planta pronto.",
+      moisture_high: "El sustrato está demasiado húmedo – no riegues y revisa el drenaje/la maceta.",
+      temperature_low: "Demasiado frío para esta planta – muévela a un lugar más cálido, sin corrientes de aire.",
+      temperature_high: "Demasiado calor – protégela del calor directo (calefacción/sol).",
+      illuminance_low: "Falta luz – acércala a una ventana o añade una lámpara de cultivo.",
+      illuminance_high: "Demasiada luz directa – aléjala de la ventana o añade sombra.",
+      conductivity_low: "Nutrientes bajos – abona en los próximos días.",
+      conductivity_high: "Demasiado abono en el sustrato – enjuaga con agua limpia y pausa el abonado.",
+      humidity_low: "El aire está demasiado seco – rocía la planta o usa un humidificador.",
+      humidity_high: "Humedad muy alta – mejora la ventilación (riesgo de hongos).",
+      battery_low: "La batería del sensor está baja – reemplázala pronto.",
+      moisture_forecast: (n) =>
+        `La humedad baja de forma continua – probablemente necesite riego en unos ${n} día${n === 1 ? "" : "s"}.`,
+      watering_overdue: (avgDays) =>
+        `Probablemente sea hora de regar – normalmente riegas cada ${avgDays} días.`,
+      fertilizing_overdue: (avgDays) =>
+        `Probablemente sea hora de abonar – normalmente abonas cada ${avgDays} días.`,
+      dry_combo:
+        "El sustrato y el aire están ambos secos, lo que agrava la situación. Además de regar, considera rociar o usar un humidificador.",
+    },
+    editor: {
+      name: "Nombre de la planta",
+      species: "Especie (opcional)",
+      image: "URL de la imagen (opcional)",
+      sensorsTitle: "Sensores (elige en los menús desplegables)",
+      thresholdHint:
+        "Min/Max son opcionales. Si se definen, al superarlos aparece automáticamente un consejo de cuidado bajo la tarjeta.",
+      min: "Mín",
+      max: "Máx",
+      showAdvice: "Mostrar consejos de cuidado",
+      showSparkline: "Mostrar indicador de rango (posición entre min/max)",
+      speciesPreset: "Plantilla de especie",
+      speciesPresetHint:
+        "Rellena los campos Min/Max con valores típicos. Los campos de cada sensor siguen siendo editables después, así que puedes ajustarlos o ignorar la plantilla e introducir tus propios umbrales.",
+      speciesPresetNone: "Sin plantilla (definir umbrales manualmente)",
+      speciesCategory: {
+        houseplant: "Plantas de interior",
+        succulent: "Suculentas y cactus",
+        herb: "Hierbas y balcón",
+      },
+      adviceDelay: "Retraso antes de mostrar un consejo (minutos)",
+      adviceDelayHint: "Evita falsas alarmas por picos breves, p. ej. justo después de regar.",
+      wateredEntity: "Ayudante de fecha/hora para «último riego» (opcional, input_datetime)",
+      wateredEntityHint:
+        "Crea un ayudante input_datetime (Ajustes → Dispositivos y servicios → Ayudantes). La tarjeta mostrará entonces cuándo se regó por última vez, con un botón.",
+      fertilizedEntity: "Ayudante de fecha/hora para «último abonado» (opcional, input_datetime)",
+      fertilizedEntityHint:
+        "Igual que con el riego: un ayudante input_datetime independiente. La tarjeta mostrará cuándo se abonó por última vez, con un botón y (cuando haya suficiente historial) el intervalo de abonado aprendido.",
+      showTrend: "Mostrar tendencia (flecha + minigráfico)",
+      showPredictions: "Mostrar predicciones (previsión de riego/abonado, intervalos aprendidos)",
+      seasonalAdjustment: "Ajuste estacional (invierno: relajar el umbral de aviso de humedad)",
+      seasonalAdjustmentHint:
+        "Reduce un 20 % el umbral de «demasiado seco» en diciembre/enero/febrero, ya que las plantas suelen necesitar menos agua en invierno. Solo afecta a los consejos, no al valor mínimo mostrado.",
+      compact: "Modo compacto (diseño reducido para muchas plantas)",
+      exportYaml: "Copiar configuración como YAML",
+      exportYamlCopied: "Copiado ✓",
+      importYamlPlaceholder: "Pega aquí el YAML para restaurar una configuración…",
+      importYamlApply: "Aplicar YAML",
+      importYamlApplied: "Aplicado ✓",
+      importYamlError: "No se pudo leer el YAML ✗",
     },
   },
 };
 
 function getLang(hass) {
   const lang = (hass && hass.language) || "en";
-  return STRINGS[lang] ? lang : lang.startsWith("de") ? "de" : "en";
+  if (STRINGS[lang]) return lang;
+  if (lang.startsWith("de")) return "de";
+  if (lang.startsWith("fr")) return "fr";
+  if (lang.startsWith("es")) return "es";
+  return "en";
 }
 
 // ---------------------------------------------------------------------------
@@ -385,6 +588,18 @@ class PlantSensorCard extends HTMLElement {
       composed: true,
     });
     this.dispatchEvent(ev);
+  }
+
+  // Which fallback icon to show in the ring when no photo is set: matches
+  // the selected species preset's category (houseplant/succulent/herb),
+  // falling back to the generic leaf when no preset is chosen.
+  _speciesIconKey() {
+    const presetId = this._config.species_preset;
+    const preset = presetId && SPECIES_PRESETS.find((p) => p.id === presetId);
+    if (!preset) return "leaf";
+    if (preset.category === "succulent") return "cactus";
+    if (preset.category === "herb") return "herb";
+    return "leaf";
   }
 
   // How far past a threshold a value has drifted, used to tell a mild
@@ -921,6 +1136,17 @@ class PlantSensorCard extends HTMLElement {
 
             .psc-card { display: flex; flex-direction: column; gap: 18px; }
 
+            /* Compact mode: for dashboards showing many plants at once. */
+            ha-card.psc-compact { padding: 13px 16px; }
+            .psc-compact .psc-card { gap: 10px; }
+            .psc-compact .psc-head { gap: 10px; }
+            .psc-compact .psc-ring-wrap { width: 42px; height: 42px; }
+            .psc-compact .psc-title { font-size: 1.05rem; }
+            .psc-compact .psc-metrics { gap: 8px; }
+            .psc-compact .psc-metric-spark { display: none; }
+            .psc-compact .psc-metric-main { gap: 2px; }
+            .psc-compact .psc-advice-item { padding: 8px 10px; }
+
             .psc-head { display: flex; align-items: center; gap: 14px; }
             .psc-ring-wrap { position: relative; width: 60px; height: 60px; flex-shrink: 0; }
             .psc-ring {
@@ -1052,6 +1278,7 @@ class PlantSensorCard extends HTMLElement {
     const t = this._t;
     const isDark = !!(this._hass && this._hass.themes && this._hass.themes.darkMode);
     this._cardEl.classList.toggle("psc-dark", isDark);
+    this._cardEl.classList.toggle("psc-compact", this._config.compact === true);
 
     const name = this._config.name || t.defaultName;
     const species = this._config.species || "";
@@ -1068,6 +1295,11 @@ class PlantSensorCard extends HTMLElement {
       imgEl.style.display = "";
       leafEl.style.display = "none";
     } else {
+      const iconKey = this._speciesIconKey();
+      if (leafEl.dataset.icon !== iconKey) {
+        leafEl.innerHTML = svgIcon(iconKey);
+        leafEl.dataset.icon = iconKey;
+      }
       imgEl.style.display = "none";
       leafEl.style.display = "";
     }
@@ -1368,6 +1600,14 @@ class PlantSensorCardEditor extends HTMLElement {
           color: var(--primary-text-color, #000);
           font: inherit;
         }
+        .psc-yaml-textarea {
+          width: 100%; min-height: 76px; box-sizing: border-box;
+          padding: 8px; border-radius: 6px; resize: vertical;
+          border: 1px solid var(--divider-color, #ccc);
+          background: var(--card-background-color, #fff);
+          color: var(--primary-text-color, #000);
+          font-family: monospace; font-size: 0.8rem;
+        }
       </style>
       <ha-textfield id="psc-name" label="${t.editor.name}"></ha-textfield>
       <ha-textfield id="psc-species" label="${t.editor.species}"></ha-textfield>
@@ -1428,8 +1668,19 @@ class PlantSensorCardEditor extends HTMLElement {
         <ha-switch id="psc-seasonal-adjustment"></ha-switch>
       </div>
       <div class="psc-hint">${t.editor.seasonalAdjustmentHint}</div>
+      <div class="psc-switch-row">
+        <span>${t.editor.compact}</span>
+        <ha-switch id="psc-compact"></ha-switch>
+      </div>
 
       <mwc-button id="psc-export-yaml" outlined>${t.editor.exportYaml}</mwc-button>
+
+      <textarea
+        id="psc-import-yaml"
+        class="psc-yaml-textarea"
+        placeholder="${t.editor.importYamlPlaceholder}"
+      ></textarea>
+      <mwc-button id="psc-import-apply" outlined>${t.editor.importYamlApply}</mwc-button>
     `;
 
     // Event listeners are wired up exactly once, here in _buildStructure().
@@ -1502,6 +1753,9 @@ class PlantSensorCardEditor extends HTMLElement {
     const seasonalSwitch = this.content.querySelector("#psc-seasonal-adjustment");
     seasonalSwitch.addEventListener("change", (e) => this._valueChanged("seasonal_adjustment", e.target.checked));
 
+    const compactSwitch = this.content.querySelector("#psc-compact");
+    compactSwitch.addEventListener("change", (e) => this._valueChanged("compact", e.target.checked));
+
     // Config export: small, dependency-free YAML serializer good enough for
     // this card's flat config (strings/numbers/booleans only). Falls back
     // to a prompt() dialog when the clipboard API isn't available/blocked.
@@ -1524,6 +1778,71 @@ class PlantSensorCardEditor extends HTMLElement {
         window.prompt("YAML:", yaml);
       }
     });
+
+    // Config import: counterpart to export. Parses the same flat
+    // "key: value" shape back into an object and replaces the config
+    // wholesale (keeping "type"), so pasting a previously exported (or
+    // hand-written) snippet restores a full setup in one go.
+    const importBtn = this.content.querySelector("#psc-import-apply");
+    const importArea = this.content.querySelector("#psc-import-yaml");
+    importBtn.addEventListener("click", () => {
+      const t = this._t;
+      const restoreLabel = () => {
+        importBtn.textContent = t.editor.importYamlApply;
+      };
+      try {
+        const parsed = this._yamlToConfig(importArea.value);
+        this._config = { type: this._config.type || "custom:plant-sensor-card", ...parsed };
+        const event = new CustomEvent("config-changed", {
+          detail: { config: this._config },
+          bubbles: true,
+          composed: true,
+        });
+        this.dispatchEvent(event);
+        this._updateValues();
+        importBtn.textContent = t.editor.importYamlApplied;
+        setTimeout(restoreLabel, 2000);
+      } catch (e) {
+        importBtn.textContent = t.editor.importYamlError;
+        setTimeout(restoreLabel, 2500);
+      }
+    });
+  }
+
+  // Parses the flat "key: value" YAML this editor exports (and simple
+  // hand-written variants of it) back into a plain config object. Not a
+  // general YAML parser - only handles what this card's config needs:
+  // strings (quoted or bare), numbers and booleans, one per line.
+  _yamlToConfig(text) {
+    const config = {};
+    (text || "").split("\n").forEach((line) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) return;
+      const idx = trimmed.indexOf(":");
+      if (idx === -1) return;
+      const key = trimmed.slice(0, idx).trim();
+      let raw = trimmed.slice(idx + 1).trim();
+      if (!key) return;
+
+      let value;
+      if (raw === "true") value = true;
+      else if (raw === "false") value = false;
+      else if (raw === "") value = "";
+      else if (/^-?\d+(\.\d+)?$/.test(raw)) value = Number(raw);
+      else if (
+        (raw.startsWith('"') && raw.endsWith('"')) ||
+        (raw.startsWith("'") && raw.endsWith("'"))
+      ) {
+        value = raw.slice(1, -1);
+      } else {
+        value = raw;
+      }
+      config[key] = value;
+    });
+    if (Object.keys(config).length === 0) {
+      throw new Error("No valid key: value lines found");
+    }
+    return config;
   }
 
   // Flat YAML serialization of the current config (good enough here since
@@ -1607,6 +1926,9 @@ class PlantSensorCardEditor extends HTMLElement {
 
     const seasonalSwitch = root.querySelector("#psc-seasonal-adjustment");
     if (seasonalSwitch) seasonalSwitch.checked = cfg.seasonal_adjustment === true;
+
+    const compactSwitch = root.querySelector("#psc-compact");
+    if (compactSwitch) compactSwitch.checked = cfg.compact === true;
   }
 }
 
@@ -1623,7 +1945,9 @@ window.customCards.push({
 });
 
 console.info(
-  `%c PLANT-SENSOR-CARD %c v${CARD_VERSION} `,
+  `%c PLANT-SENSOR-CARD %c v${PLANT_SENSOR_CARD_VERSION} `,
   "color: white; background: #4caf50; font-weight: 700;",
   "color: #4caf50; background: white; font-weight: 700;"
 );
+
+})();

@@ -1,0 +1,225 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  body { background: #f2f6ee; padding: 20px; font-family: sans-serif; }
+  .wrap { width: 420px; background: white; padding: 16px; border-radius: 12px; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <plant-sensor-card-editor id="editor"></plant-sensor-card-editor>
+  </div>
+  <div class="wrap">
+    <plant-overview-card-editor id="editor2"></plant-overview-card-editor>
+  </div>
+  <pre id="log" style="white-space:pre-wrap;background:#eee;padding:10px;margin-top:10px;"></pre>
+
+<script>
+  // ---- Minimal stand-ins for the real Home Assistant frontend elements ----
+  class HaTextfieldStub extends HTMLElement {
+    connectedCallback() {
+      if (this._input) return;
+      const type = this.getAttribute("type") || "text";
+      this.innerHTML = `<input type="${type}" />`;
+      this._input = this.querySelector("input");
+      this._input.addEventListener("focus", () => this.dispatchEvent(new Event("focus")));
+    }
+    get value() { return this._input ? this._input.value : this._pending || ""; }
+    set value(v) {
+      if (!this._input) { this._pending = v; return; }
+      this._input.value = v ?? "";
+    }
+    focus() { this._input && this._input.focus(); }
+  }
+  customElements.define("ha-textfield", HaTextfieldStub);
+
+  class HaSwitchStub extends HTMLElement {
+    connectedCallback() {
+      if (this._cb) return;
+      this.innerHTML = `<input type="checkbox" />`;
+      this._cb = this.querySelector("input");
+    }
+    get checked() { return this._cb ? this._cb.checked : !!this._pending; }
+    set checked(v) {
+      if (!this._cb) { this._pending = v; return; }
+      this._cb.checked = !!v;
+    }
+  }
+  customElements.define("ha-switch", HaSwitchStub);
+
+  class HaEntityPickerStub extends HTMLElement {
+    connectedCallback() {
+      if (this._select) return;
+      this.innerHTML = `<select></select>`;
+      this._select = this.querySelector("select");
+      this._select.addEventListener("change", () => {
+        this._value = this._select.value;
+        this.dispatchEvent(new CustomEvent("value-changed", {
+          detail: { value: this._select.value }, bubbles: true, composed: true,
+        }));
+      });
+      this._select.addEventListener("focus", () => this.dispatchEvent(new Event("focus")));
+      this._populate();
+    }
+    set hass(h) { this._hass = h; this._populate(); }
+    get hass() { return this._hass; }
+    set value(v) {
+      this._value = v || "";
+      if (this._select) this._select.value = this._value;
+    }
+    get value() { return this._value || ""; }
+    focus() { this._select && this._select.focus(); }
+    _populate() {
+      if (!this._select) return;
+      const ids = this._hass ? Object.keys(this._hass.states) : [];
+      const prevValue = this._select.value;
+      this._select.innerHTML =
+        `<option value="">-- keine Auswahl --</option>` +
+        ids.map((id) => `<option value="${id}">${id}</option>`).join("");
+      if (this._value) this._select.value = this._value;
+      else if (prevValue) this._select.value = prevValue;
+    }
+  }
+  customElements.define("ha-entity-picker", HaEntityPickerStub);
+
+  class MwcButtonStub extends HTMLElement {
+    connectedCallback() {
+      if (this._btn) return;
+      this._btn = document.createElement("button");
+      this._btn.textContent = this.textContent;
+      this.textContent = "";
+      this.appendChild(this._btn);
+      this._btn.addEventListener("click", () => this.dispatchEvent(new Event("click")));
+    }
+  }
+  customElements.define("mwc-button", MwcButtonStub);
+</script>
+
+<script src="../plant-sensor-card.js"></script>
+<script src="../plant-overview-card.js"></script>
+<script>
+  const log = (msg) => { document.getElementById("log").textContent += msg + "\n"; console.log(msg); };
+  let failures = [];
+  const assert = (cond, msg) => {
+    if (!cond) { failures.push(msg); log("FAIL: " + msg); }
+    else log("ok: " + msg);
+  };
+
+  const hass = {
+    language: "de",
+    themes: { darkMode: false },
+    states: {
+      "sensor.moisture": { entity_id: "sensor.moisture", state: "38", attributes: { unit_of_measurement: "%" } },
+      "sensor.moisture2": { entity_id: "sensor.moisture2", state: "40", attributes: { unit_of_measurement: "%" } },
+      "sensor.temp": { entity_id: "sensor.temp", state: "21.4", attributes: { unit_of_measurement: "°C" } },
+      "input_datetime.watered": { entity_id: "input_datetime.watered", state: "2026-09-24 10:00:00", attributes: {} },
+    },
+  };
+
+  try {
+    // ===================== plant-sensor-card-editor =====================
+    const editor = document.getElementById("editor");
+    let currentConfig = { type: "custom:plant-sensor-card", name: "Testpflanze" };
+    editor.addEventListener("config-changed", (ev) => {
+      currentConfig = ev.detail.config;
+      // Mimic real HA: the dashboard editor host re-invokes setConfig()
+      // on the editor after every config-changed event.
+      editor.setConfig(currentConfig);
+    });
+
+    editor.setConfig(currentConfig);
+    editor.hass = hass;
+
+    const moisturePickerBefore = editor.content.querySelector('ha-entity-picker[data-key="moisture_entity"]');
+    assert(!!moisturePickerBefore, "moisture picker exists after initial render");
+
+    // Simulate opening the dropdown / focusing it, then picking a value,
+    // the way a user interacting with a live ha-entity-picker would.
+    moisturePickerBefore.focus();
+    moisturePickerBefore._select.value = "sensor.moisture";
+    moisturePickerBefore._select.dispatchEvent(new Event("change"));
+
+    const moisturePickerAfter = editor.content.querySelector('ha-entity-picker[data-key="moisture_entity"]');
+    assert(moisturePickerBefore === moisturePickerAfter, "moisture picker DOM node is NOT recreated after selecting a value (no flicker/teardown)");
+    assert(document.activeElement === moisturePickerAfter || editor.content.contains(document.activeElement), "focus not lost after selection round-trip");
+    assert(currentConfig.moisture_entity === "sensor.moisture", "config actually updated with picked entity");
+
+    // Now type into the min field while a config-changed round trip occurs,
+    // confirming the field is not blanked/recreated mid-keystroke.
+    const minField = editor.content.querySelector('ha-textfield[data-key="moisture_min"]');
+    minField.focus();
+    minField._input.value = "2";
+    minField._input.dispatchEvent(new Event("input", { bubbles: true }));
+    const minFieldAfterFirstChar = editor.content.querySelector('ha-textfield[data-key="moisture_min"]');
+    assert(minField === minFieldAfterFirstChar, "min field DOM node stable after first keystroke");
+    assert(minFieldAfterFirstChar._input.value === "2", "min field keeps typed value ('2') after config-changed round trip");
+
+    minField._input.value = "20";
+    minField._input.dispatchEvent(new Event("input", { bubbles: true }));
+    assert(editor.content.querySelector('ha-textfield[data-key="moisture_min"]')._input.value === "20", "min field keeps full typed value ('20') after second keystroke");
+    assert(currentConfig.moisture_min === 20, "config reflects final typed number");
+
+    // Apply a species preset and make sure the structure is still stable
+    // and picker values used elsewhere aren't wiped.
+    moisturePickerAfter.value; // keep reference
+    editor.content.querySelector("#psc-species-preset").value = "monstera";
+    editor.content.querySelector("#psc-species-preset").dispatchEvent(new Event("change"));
+    assert(currentConfig.species_preset === "monstera", "preset applied to config");
+    assert(editor.content.querySelector('ha-entity-picker[data-key="moisture_entity"]').value === "sensor.moisture", "previously picked sensor survives preset application");
+
+    log("--- sensor-card editor final config ---");
+    log(JSON.stringify(currentConfig, null, 2));
+
+    // ===================== plant-overview-card-editor =====================
+    const editor2 = document.getElementById("editor2");
+    let overviewConfig = { type: "custom:plant-overview-card", plants: [] };
+    editor2.addEventListener("config-changed", (ev) => {
+      overviewConfig = ev.detail.config;
+      editor2.setConfig(overviewConfig);
+    });
+
+    editor2.setConfig(overviewConfig);
+    editor2.hass = hass;
+
+    editor2.content.querySelector("#poc-add-plant").click();
+    assert(overviewConfig.plants.length === 1, "plant added to overview config");
+
+    const picker0Before = editor2.content.querySelector('ha-entity-picker[data-plant="0"][data-key="moisture_entity"]');
+    assert(!!picker0Before, "plant 0 moisture picker exists");
+    picker0Before.focus();
+    picker0Before._select.value = "sensor.moisture2";
+    picker0Before._select.dispatchEvent(new Event("change"));
+    const picker0After = editor2.content.querySelector('ha-entity-picker[data-plant="0"][data-key="moisture_entity"]');
+    assert(picker0Before === picker0After, "plant picker DOM node stable after selecting a value (no rebuild since plant count unchanged)");
+    assert(overviewConfig.plants[0].moisture_entity === "sensor.moisture2", "overview config updated with picked entity");
+
+    const nameField0 = editor2.content.querySelector('ha-textfield[data-plant="0"][data-key="name"]');
+    nameField0.focus();
+    nameField0._input.value = "M";
+    nameField0._input.dispatchEvent(new Event("input", { bubbles: true }));
+    nameField0._input.value = "Monstera";
+    nameField0._input.dispatchEvent(new Event("input", { bubbles: true }));
+    assert(editor2.content.querySelector('ha-textfield[data-plant="0"][data-key="name"]') === nameField0, "plant name field stable across keystrokes");
+    assert(overviewConfig.plants[0].name === "Monstera", "plant name fully typed in config");
+
+    // Adding a second plant DOES need a structural rebuild (new block) --
+    // make sure that still works and doesn't throw.
+    editor2.content.querySelector("#poc-add-plant").click();
+    assert(overviewConfig.plants.length === 2, "second plant added");
+    assert(editor2.content.querySelectorAll(".poc-plant-block").length === 2, "two plant blocks rendered");
+    assert(editor2.content.querySelector('ha-entity-picker[data-plant="0"][data-key="moisture_entity"]').value === "sensor.moisture2", "plant 0 data survives rebuild triggered by adding plant 1");
+
+    log("--- overview editor final config ---");
+    log(JSON.stringify(overviewConfig, null, 2));
+
+    log(failures.length ? ("DONE WITH FAILURES: " + failures.length) : "ALL PASSED");
+    window.__testResult = { ok: failures.length === 0, failures };
+  } catch (e) {
+    log("ERROR: " + e.message + "\n" + e.stack);
+    window.__testResult = { ok: false, error: e.message, stack: e.stack };
+  }
+</script>
+</body>
+</html>

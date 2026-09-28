@@ -1,0 +1,115 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8" /></head>
+<body>
+<plant-sensor-card id="card"></plant-sensor-card>
+<script src="../plant-sensor-card.js"></script>
+<script>
+  const log = (msg) => console.log(msg);
+  const failures = [];
+  const assert = (cond, msg) => {
+    if (!cond) { failures.push(msg); log("FAIL: " + msg); }
+    else log("ok: " + msg);
+  };
+
+  const now = Date.now();
+  const iso = (ms) => new Date(ms).toISOString();
+
+  // Moisture: declining steadily from 35% (12h ago) to 25% now, min=20 ->
+  // should trigger a "watering forecast" (not yet a breach).
+  const moistureSeries = [
+    { state: "35", last_changed: iso(now - 12 * 3600000) },
+    { state: "30", last_changed: iso(now - 6 * 3600000) },
+    { state: "25", last_changed: iso(now - 0.1 * 3600000) },
+  ];
+
+  // Temperature: flat, no meaningful trend.
+  const tempSeries = [
+    { state: "21.0", last_changed: iso(now - 12 * 3600000) },
+    { state: "21.2", last_changed: iso(now - 1 * 3600000) },
+  ];
+
+  // watered_entity: watered roughly every 7 days for the last ~35 days,
+  // but NOT for the last 21 days -> overdue (avg ~7d, now ~3x overdue).
+  const wateredHistory = [
+    { state: iso(now - 35 * 86400000), last_changed: iso(now - 35 * 86400000) },
+    { state: iso(now - 28 * 86400000), last_changed: iso(now - 28 * 86400000) },
+    { state: iso(now - 21 * 86400000), last_changed: iso(now - 21 * 86400000) },
+  ];
+
+  const states = {
+    "sensor.moisture": { entity_id: "sensor.moisture", state: "25", attributes: { unit_of_measurement: "%" } },
+    "sensor.temp": { entity_id: "sensor.temp", state: "21.2", attributes: { unit_of_measurement: "°C" } },
+    "input_datetime.watered": {
+      entity_id: "input_datetime.watered",
+      state: iso(now - 21 * 86400000).replace("T", " ").substring(0, 19),
+      attributes: {},
+    },
+  };
+
+  const hass = {
+    language: "de",
+    themes: { darkMode: false },
+    states,
+    callApi: async (method, path) => {
+      if (path.includes("sensor.moisture")) return [moistureSeries];
+      if (path.includes("sensor.temp")) return [tempSeries];
+      if (path.includes("input_datetime.watered")) return [wateredHistory];
+      return [[]];
+    },
+    callService: () => {},
+  };
+
+  const card = document.getElementById("card");
+  card.setConfig({
+    type: "custom:plant-sensor-card",
+    name: "Testpflanze",
+    moisture_entity: "sensor.moisture",
+    moisture_min: 20,
+    moisture_max: 60,
+    temperature_entity: "sensor.temp",
+    temperature_min: 15,
+    temperature_max: 28,
+    watered_entity: "input_datetime.watered",
+    advice_delay_minutes: 0,
+  });
+  card.hass = hass;
+
+  // The trend/forecast/overdue logic is async (recorder history fetch), so
+  // give the pending promises a couple of render cycles to resolve.
+  let attempts = 0;
+  const check = () => {
+    attempts++;
+    const html = card.querySelector(".psc-card") ? card.innerHTML : "";
+    const adviceTexts = Array.from(card.querySelectorAll(".psc-advice-item")).map((el) => el.textContent.trim());
+    const hasForecast = adviceTexts.some((t) => /Tag/.test(t) && /sinkt|nötig/.test(t));
+    const hasOverdue = adviceTexts.some((t) => /Zeit zum Gießen/.test(t));
+    const trendEls = card.querySelectorAll(".psc-trend");
+
+    if ((!hasForecast || !hasOverdue || trendEls.length === 0) && attempts < 30) {
+      setTimeout(check, 100);
+      return;
+    }
+
+    assert(hasForecast, "moisture watering forecast advice appears (declining trend, not yet breaching)");
+    assert(hasOverdue, "watering overdue advice appears (learned ~7d interval, last watered 21d ago)");
+    assert(trendEls.length > 0, "at least one trend arrow rendered");
+
+    const moistureRow = Array.from(card.querySelectorAll(".psc-metric-row")).find((r) =>
+      r.textContent.includes("25")
+    );
+    assert(!!moistureRow, "moisture row found");
+    assert(!!moistureRow.querySelector(".psc-trend.down"), "moisture row shows a DOWN trend arrow");
+
+    const dangerItem = Array.from(card.querySelectorAll(".psc-advice-item")).find((el) =>
+      el.classList.contains("danger")
+    );
+    assert(!!dangerItem, "the significantly-overdue watering advice is styled as 'danger' severity");
+
+    log(failures.length ? "DONE WITH FAILURES: " + failures.length : "ALL PASSED");
+    window.__testResult = { ok: failures.length === 0, failures, adviceTexts };
+  };
+  setTimeout(check, 100);
+</script>
+</body>
+</html>

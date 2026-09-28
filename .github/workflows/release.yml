@@ -1,7 +1,7 @@
 name: Auto Release
 
-# Creates a GitHub Release automatically whenever CARD_VERSION in
-# plant-sensor-card.js changes and no matching tag exists yet. This runs
+# Creates a GitHub Release automatically whenever PLANT_SENSOR_CARD_VERSION
+# in plant-sensor-card.js changes and no matching tag exists yet. This runs
 # with GitHub's own token inside the Action, so it works even though the
 # assistant session that usually pushes commits here isn't allowed to
 # create releases itself.
@@ -23,12 +23,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Read CARD_VERSION
+      - name: Read PLANT_SENSOR_CARD_VERSION
         id: version
         run: |
-          VERSION=$(grep -oP 'CARD_VERSION = "\K[^"]+' plant-sensor-card.js)
+          VERSION=$(grep -oP 'PLANT_SENSOR_CARD_VERSION = "\K[^"]+' plant-sensor-card.js)
           if [ -z "$VERSION" ]; then
-            echo "Could not find CARD_VERSION in plant-sensor-card.js"
+            echo "Could not find PLANT_SENSOR_CARD_VERSION in plant-sensor-card.js"
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"

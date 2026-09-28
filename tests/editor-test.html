@@ -1,0 +1,153 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  body { background: #f2f6ee; padding: 20px; font-family: sans-serif; }
+  .wrap { width: 420px; background: white; padding: 16px; border-radius: 12px; }
+  ha-textfield, ha-entity-picker { display: block; margin-bottom: 6px; }
+  ha-textfield input, ha-entity-picker select { width: 100%; padding: 6px; font: inherit; }
+  ha-textfield::before { content: attr(label); display:block; font-size:11px; color:#666; }
+  .psc-threshold-row { display:flex; gap:6px; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <plant-sensor-card-editor id="editor"></plant-sensor-card-editor>
+  </div>
+  <pre id="log" style="white-space:pre-wrap;background:#eee;padding:10px;margin-top:10px;"></pre>
+
+<script>
+  // ---- Minimal stand-ins for the real Home Assistant frontend elements ----
+  class HaTextfieldStub extends HTMLElement {
+    connectedCallback() {
+      if (this._input) return;
+      const type = this.getAttribute("type") || "text";
+      this.innerHTML = `<input type="${type}" />`;
+      this._input = this.querySelector("input");
+    }
+    get value() { return this._input ? this._input.value : this._pending || ""; }
+    set value(v) {
+      if (!this._input) { this._pending = v; return; }
+      this._input.value = v ?? "";
+    }
+  }
+  customElements.define("ha-textfield", HaTextfieldStub);
+
+  class HaSwitchStub extends HTMLElement {
+    connectedCallback() {
+      if (this._cb) return;
+      this.innerHTML = `<input type="checkbox" />`;
+      this._cb = this.querySelector("input");
+    }
+    get checked() { return this._cb ? this._cb.checked : !!this._pending; }
+    set checked(v) {
+      if (!this._cb) { this._pending = v; return; }
+      this._cb.checked = !!v;
+    }
+  }
+  customElements.define("ha-switch", HaSwitchStub);
+
+  class HaEntityPickerStub extends HTMLElement {
+    connectedCallback() {
+      if (this._select) return;
+      this.innerHTML = `<select></select>`;
+      this._select = this.querySelector("select");
+      this._select.addEventListener("change", () => {
+        this._value = this._select.value;
+        this.dispatchEvent(new CustomEvent("value-changed", {
+          detail: { value: this._select.value }, bubbles: true, composed: true,
+        }));
+      });
+      this._populate();
+    }
+    set hass(h) { this._hass = h; this._populate(); }
+    get hass() { return this._hass; }
+    set value(v) {
+      this._value = v || "";
+      if (this._select) this._select.value = this._value;
+    }
+    get value() { return this._value || ""; }
+    _populate() {
+      if (!this._select) return;
+      const ids = this._hass ? Object.keys(this._hass.states) : [];
+      this._select.innerHTML =
+        `<option value="">-- keine Auswahl --</option>` +
+        ids.map((id) => `<option value="${id}">${id}</option>`).join("");
+      if (this._value) this._select.value = this._value;
+    }
+  }
+  customElements.define("ha-entity-picker", HaEntityPickerStub);
+</script>
+
+<script src="../plant-sensor-card.js"></script>
+<script>
+  const log = (msg) => { document.getElementById("log").textContent += msg + "\n"; console.log(msg); };
+
+  const hass = {
+    language: "de",
+    themes: { darkMode: false },
+    states: {
+      "sensor.moisture": { entity_id: "sensor.moisture", state: "38", attributes: { unit_of_measurement: "%" } },
+      "sensor.temp": { entity_id: "sensor.temp", state: "21.4", attributes: { unit_of_measurement: "°C" } },
+      "input_datetime.watered": { entity_id: "input_datetime.watered", state: "2026-09-24 10:00:00", attributes: {} },
+    },
+  };
+
+  const editor = document.getElementById("editor");
+  let currentConfig = { type: "custom:plant-sensor-card", name: "Testpflanze" };
+
+  editor.addEventListener("config-changed", (ev) => {
+    currentConfig = ev.detail.config;
+    log("config-changed -> " + JSON.stringify(currentConfig));
+  });
+
+  try {
+    editor.setConfig(currentConfig);
+    editor.hass = hass;
+    log("Editor initial render: OK");
+
+    // Simulate: user picks a moisture sensor from the dropdown
+    const moisturePicker = editor.content.querySelector('ha-entity-picker[data-key="moisture_entity"]');
+    moisturePicker._select.value = "sensor.moisture";
+    moisturePicker._select.dispatchEvent(new Event("change"));
+
+    // Simulate: user types min/max values
+    const minField = editor.content.querySelector('ha-textfield[data-key="moisture_min"]');
+    minField._input.value = "20";
+    minField._input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const maxField = editor.content.querySelector('ha-textfield[data-key="moisture_max"]');
+    maxField._input.value = "60";
+    maxField._input.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // Simulate: user applies a species preset
+    editor.content.querySelector("#psc-species-preset").value = "monstera";
+    editor.content.querySelector("#psc-species-preset").dispatchEvent(new Event("change"));
+
+    // Simulate: user toggles the advice switch off
+    const adviceSwitch = editor.content.querySelector("#psc-show-advice");
+    adviceSwitch._cb.checked = false;
+    adviceSwitch._cb.dispatchEvent(new Event("change", { bubbles: true }));
+
+    // Simulate: user sets the watered helper
+    const wateredPicker = editor.content.querySelector("#psc-watered-entity");
+    wateredPicker._select.value = "input_datetime.watered";
+    wateredPicker._select.dispatchEvent(new Event("change"));
+
+    log("--- FINAL CONFIG ---");
+    log(JSON.stringify(currentConfig, null, 2));
+
+    // Re-render editor with the new config to make sure a second pass doesn't throw
+    editor.setConfig(currentConfig);
+    editor.hass = hass;
+    log("Second render with populated config: OK");
+
+    window.__testResult = { ok: true, config: currentConfig };
+  } catch (e) {
+    log("ERROR: " + e.message + "\n" + e.stack);
+    window.__testResult = { ok: false, error: e.message };
+  }
+</script>
+</body>
+</html>

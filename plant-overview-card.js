@@ -11,7 +11,11 @@
  * https://github.com/patrickbrundiers-dev/Plant_card-b
  */
 
-const CARD_VERSION = "1.2.0";
+
+(function () {
+"use strict";
+
+const PLANT_OVERVIEW_CARD_VERSION = "1.3.0";
 
 const SENSOR_DEFS = [
   { key: "moisture", icon: "mdi:water-percent", unit: "%" },
@@ -90,6 +94,7 @@ const STRINGS = {
         herb: "Kräuter & Balkon",
       },
       sortByStatus: "Nach Dringlichkeit sortieren (kritisch zuerst)",
+      compact: "Kompaktmodus (kleinere Zeilen)",
     },
   },
   en: {
@@ -116,13 +121,72 @@ const STRINGS = {
         herb: "Herbs & balcony",
       },
       sortByStatus: "Sort by urgency (most critical first)",
+      compact: "Compact mode (smaller rows)",
+    },
+  },
+  fr: {
+    title: "Plantes",
+    noPlants: "Aucune plante configurée. Modifiez la carte pour en ajouter.",
+    allGood: "Tout va bien",
+    problemsCount: (n) => `${n} alerte${n === 1 ? "" : "s"}`,
+    noThresholds: "Aucun seuil défini",
+    labels: {
+      moisture: "Humidité", temperature: "Température", illuminance: "Lumière",
+      conductivity: "Conductivité", humidity: "Humidité de l'air", battery: "Batterie",
+    },
+    editor: {
+      title: "Titre",
+      addPlant: "+ Ajouter une plante",
+      removePlant: "Supprimer",
+      plantName: "Nom",
+      min: "Min", max: "Max",
+      speciesPreset: "Modèle d'espèce",
+      speciesPresetNone: "Aucun modèle",
+      speciesCategory: {
+        houseplant: "Plantes d'intérieur",
+        succulent: "Succulentes & cactus",
+        herb: "Herbes & balcon",
+      },
+      sortByStatus: "Trier par urgence (le plus critique en premier)",
+      compact: "Mode compact (lignes réduites)",
+    },
+  },
+  es: {
+    title: "Plantas",
+    noPlants: "No hay plantas configuradas. Edita la tarjeta para añadir alguna.",
+    allGood: "Todo bien",
+    problemsCount: (n) => `${n} aviso${n === 1 ? "" : "s"}`,
+    noThresholds: "Sin umbrales definidos",
+    labels: {
+      moisture: "Humedad", temperature: "Temperatura", illuminance: "Luz",
+      conductivity: "Conductividad", humidity: "Humedad ambiental", battery: "Batería",
+    },
+    editor: {
+      title: "Título",
+      addPlant: "+ Añadir planta",
+      removePlant: "Eliminar",
+      plantName: "Nombre",
+      min: "Mín", max: "Máx",
+      speciesPreset: "Plantilla de especie",
+      speciesPresetNone: "Sin plantilla",
+      speciesCategory: {
+        houseplant: "Plantas de interior",
+        succulent: "Suculentas y cactus",
+        herb: "Hierbas y balcón",
+      },
+      sortByStatus: "Ordenar por urgencia (lo más crítico primero)",
+      compact: "Modo compacto (filas reducidas)",
     },
   },
 };
 
 function getLang(hass) {
   const lang = (hass && hass.language) || "en";
-  return STRINGS[lang] ? lang : lang.startsWith("de") ? "de" : "en";
+  if (STRINGS[lang]) return lang;
+  if (lang.startsWith("de")) return "de";
+  if (lang.startsWith("fr")) return "fr";
+  if (lang.startsWith("es")) return "es";
+  return "en";
 }
 
 // How far past a threshold a value has drifted before it counts as a
@@ -259,6 +323,14 @@ class PlantOverviewCard extends HTMLElement {
             .poc-status { font-size: 0.78rem; color: var(--poc-text-2); font-weight: 600; }
             .poc-empty { color: var(--poc-text-2); font-size: 0.88rem; }
             .poc-row ha-icon { color: var(--poc-text-2); --mdc-icon-size: 18px; }
+
+            /* Compact mode: tighter rows for long plant lists. */
+            ha-card.poc-compact { padding: 14px; }
+            .poc-compact .poc-title { margin-bottom: 8px; font-size: 1.05rem; }
+            .poc-compact .poc-list { gap: 5px; }
+            .poc-compact .poc-row { padding: 8px 10px; gap: 10px; }
+            .poc-compact .poc-name { font-size: 0.85rem; }
+            .poc-compact .poc-status { font-size: 0.72rem; }
           </style>
         </ha-card>
       `;
@@ -268,6 +340,7 @@ class PlantOverviewCard extends HTMLElement {
 
     const isDark = !!(this._hass.themes && this._hass.themes.darkMode);
     this._cardEl.classList.toggle("poc-dark", isDark);
+    this._cardEl.classList.toggle("poc-compact", this._config.compact === true);
 
     this.querySelector(".poc-title").textContent = this._config.title || t.title;
 
@@ -482,6 +555,10 @@ class PlantOverviewCardEditor extends HTMLElement {
         <span>${t.editor.sortByStatus}</span>
         <ha-switch id="poc-sort-by-status"></ha-switch>
       </div>
+      <div class="poc-switch-row">
+        <span>${t.editor.compact}</span>
+        <ha-switch id="poc-compact"></ha-switch>
+      </div>
     `;
 
     // Event listeners are wired up exactly once per structure build. Values
@@ -529,6 +606,12 @@ class PlantOverviewCardEditor extends HTMLElement {
       this._config = { ...this._config, sort_by_status: e.target.checked };
       this._emit();
     });
+
+    const compactSwitch = this.content.querySelector("#poc-compact");
+    compactSwitch.addEventListener("change", (e) => {
+      this._config = { ...this._config, compact: e.target.checked };
+      this._emit();
+    });
   }
 
   // Applies the current config to the already-built DOM. Called on every
@@ -573,6 +656,9 @@ class PlantOverviewCardEditor extends HTMLElement {
 
     const sortSwitch = root.querySelector("#poc-sort-by-status");
     if (sortSwitch) sortSwitch.checked = cfg.sort_by_status !== false;
+
+    const compactSwitch = root.querySelector("#poc-compact");
+    if (compactSwitch) compactSwitch.checked = cfg.compact === true;
   }
 }
 
@@ -589,7 +675,9 @@ window.customCards.push({
 });
 
 console.info(
-  `%c PLANT-OVERVIEW-CARD %c v${CARD_VERSION} `,
+  `%c PLANT-OVERVIEW-CARD %c v${PLANT_OVERVIEW_CARD_VERSION} `,
   "color: white; background: #4caf50; font-weight: 700;",
   "color: #4caf50; background: white; font-weight: 700;"
 );
+
+})();

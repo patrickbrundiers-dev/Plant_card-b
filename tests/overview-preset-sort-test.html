@@ -1,0 +1,96 @@
+<!doctype html>
+<html><head><meta charset="utf-8" /></head><body>
+<plant-overview-card id="card"></plant-overview-card>
+<plant-overview-card-editor id="editor"></plant-overview-card-editor>
+<script>
+  class HaTextfieldStub extends HTMLElement {
+    connectedCallback() { if (this._input) return; this.innerHTML = `<input type="${this.getAttribute("type")||"text"}" />`; this._input = this.querySelector("input"); }
+    get value() { return this._input ? this._input.value : this._pending || ""; }
+    set value(v) { if (!this._input) { this._pending = v; return; } this._input.value = v ?? ""; }
+  }
+  customElements.define("ha-textfield", HaTextfieldStub);
+  class HaSwitchStub extends HTMLElement {
+    connectedCallback() { if (this._cb) return; this.innerHTML = `<input type="checkbox" />`; this._cb = this.querySelector("input"); }
+    get checked() { return this._cb ? this._cb.checked : !!this._pending; }
+    set checked(v) { if (!this._cb) { this._pending = v; return; } this._cb.checked = !!v; }
+  }
+  customElements.define("ha-switch", HaSwitchStub);
+  class HaEntityPickerStub extends HTMLElement {
+    connectedCallback() { if (this._select) return; this.innerHTML = `<select></select>`; this._select = this.querySelector("select");
+      this._select.addEventListener("change", () => { this._value = this._select.value; this.dispatchEvent(new CustomEvent("value-changed", { detail: { value: this._select.value }, bubbles: true, composed: true })); });
+      this._populate(); }
+    set hass(h) { this._hass = h; this._populate(); }
+    get hass() { return this._hass; }
+    set value(v) { this._value = v || ""; if (this._select) this._select.value = this._value; }
+    get value() { return this._value || ""; }
+    _populate() { if (!this._select) return; const ids = this._hass ? Object.keys(this._hass.states) : [];
+      const prev = this._select.value;
+      this._select.innerHTML = `<option value="">--</option>` + ids.map((id) => `<option value="${id}">${id}</option>`).join("");
+      if (this._value) this._select.value = this._value; else if (prev) this._select.value = prev; }
+  }
+  customElements.define("ha-entity-picker", HaEntityPickerStub);
+  customElements.define("mwc-button", class extends HTMLElement {
+    connectedCallback() { if (this._btn) return; this._label = this.textContent; this.innerHTML = ""; this._btn = document.createElement("button"); this._btn.textContent = this._label; this.appendChild(this._btn);
+      this._btn.addEventListener("click", () => this.dispatchEvent(new Event("click"))); }
+  });
+</script>
+<script src="../plant-overview-card.js"></script>
+<script>
+  const log = (msg) => console.log(msg);
+  const failures = [];
+  const assert = (cond, msg) => { if (!cond) { failures.push(msg); log("FAIL: " + msg); } else log("ok: " + msg); };
+
+  const states = {
+    "sensor.p1_moisture": { entity_id: "sensor.p1_moisture", state: "5", attributes: { unit_of_measurement: "%" } },
+    "sensor.p2_moisture": { entity_id: "sensor.p2_moisture", state: "40", attributes: { unit_of_measurement: "%" } },
+  };
+  const hass = { language: "de", themes: { darkMode: false }, states };
+
+  // --- Display card: sorting check ---
+  const card = document.getElementById("card");
+  card.setConfig({
+    type: "custom:plant-overview-card",
+    plants: [
+      { name: "AllGood", moisture_entity: "sensor.p2_moisture", moisture_min: 20 },
+      { name: "SeverelyDry", moisture_entity: "sensor.p1_moisture", moisture_min: 20 },
+    ],
+  });
+  card.hass = hass;
+
+  const names = Array.from(card.querySelectorAll(".poc-name")).map((el) => el.textContent);
+  assert(names[0] === "SeverelyDry", "danger plant sorted to top even though listed second in config (got: " + names.join(",") + ")");
+
+  // Sorting can be disabled.
+  card.setConfig({ ...card._config, sort_by_status: false });
+  card.hass = hass;
+  const namesUnsorted = Array.from(card.querySelectorAll(".poc-name")).map((el) => el.textContent);
+  assert(namesUnsorted[0] === "AllGood", "sort_by_status:false keeps original config order (got: " + namesUnsorted.join(",") + ")");
+
+  // --- Editor: preset dropdown ---
+  const editor = document.getElementById("editor");
+  let editorConfig = { type: "custom:plant-overview-card", plants: [{ name: "" }] };
+  editor.addEventListener("config-changed", (ev) => { editorConfig = ev.detail.config; editor.setConfig(editorConfig); });
+  editor.setConfig(editorConfig);
+  editor.hass = hass;
+
+  const presetSelect = editor.content.querySelector('.poc-preset-select[data-preset-plant="0"]');
+  assert(!!presetSelect, "preset select exists for plant 0");
+  const groups = Array.from(presetSelect.querySelectorAll("optgroup")).map((g) => g.label);
+  assert(groups.length === 3, "preset select has 3 category optgroups (got: " + groups.join(",") + ")");
+
+  presetSelect.value = "rosmarin";
+  presetSelect.dispatchEvent(new Event("change"));
+  assert(editorConfig.plants[0].species_preset === "rosmarin", "preset applied to plant 0 config");
+  assert(editorConfig.plants[0].moisture_min === 10, "preset filled moisture_min for plant 0");
+  assert(editorConfig.plants[0].name === "Rosmarin", "preset filled empty plant name");
+
+  const sortSwitch = editor.content.querySelector("#poc-sort-by-status");
+  assert(!!sortSwitch, "sort-by-status switch exists in editor");
+  sortSwitch._cb.checked = false;
+  sortSwitch._cb.dispatchEvent(new Event("change", { bubbles: true }));
+  assert(editorConfig.sort_by_status === false, "sort_by_status set via editor switch");
+
+  log(failures.length ? "DONE WITH FAILURES: " + failures.length : "ALL PASSED");
+  window.__testResult = { ok: failures.length === 0, failures };
+</script>
+</body></html>

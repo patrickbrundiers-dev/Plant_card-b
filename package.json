@@ -1,0 +1,12 @@
+{
+  "name": "plant-sensor-card",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Test tooling for the Plant Sensor Card and Plant Overview Card Home Assistant Lovelace cards.",
+  "scripts": {
+    "test": "node tests/run-tests.js"
+  },
+  "devDependencies": {
+    "playwright": "^1.47.0"
+  }
+}
