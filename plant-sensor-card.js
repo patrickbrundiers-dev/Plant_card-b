@@ -18,7 +18,7 @@
 (function () {
 "use strict";
 
-const PLANT_SENSOR_CARD_VERSION = "2.6.0";
+const PLANT_SENSOR_CARD_VERSION = "2.7.0";
 
 const SENSOR_DEFS = [
   { key: "moisture", unit: "%" },
@@ -602,6 +602,22 @@ class PlantSensorCard extends HTMLElement {
     return "leaf";
   }
 
+  // Is it currently night, according to Home Assistant's sun.sun entity?
+  // Used to suppress "not enough light" advice, since 0 lx after dark is
+  // expected and not something to act on. Falls back to "no" (never
+  // suppress) when sun.sun isn't available, matching the old behavior.
+  _isNight() {
+    const sun = this._hass && this._hass.states && this._hass.states["sun.sun"];
+    return !!sun && sun.state === "below_horizon";
+  }
+
+  // Illuminance-low is the one threshold that's expected to breach for
+  // roughly half of every day (nighttime), so it's suppressed while the
+  // sun is down rather than treated like a real care issue.
+  _lowBreachSuppressed(defKey) {
+    return defKey === "illuminance" && this._isNight();
+  }
+
   // How far past a threshold a value has drifted, used to tell a mild
   // breach ("warning") apart from a severe one ("danger") in the advice
   // list. Purely relative to the threshold itself, not a botanical fact.
@@ -664,7 +680,7 @@ class PlantSensorCard extends HTMLElement {
 
       if (minAttr !== undefined && minAttr !== "") {
         anyThresholdConfigured = true;
-        const breach = num < Number(minAttr);
+        const breach = num < Number(minAttr) && !this._lowBreachSuppressed(def.key);
         const key = `${entityId}_low`;
         if (breach && adviceLow) {
           if (!(key in this._badSince)) {
@@ -979,7 +995,7 @@ class PlantSensorCard extends HTMLElement {
 
       total += 1;
       const breach =
-        (min !== undefined && min !== "" && num < Number(min)) ||
+        (min !== undefined && min !== "" && num < Number(min) && !this._lowBreachSuppressed(def.key)) ||
         (max !== undefined && max !== "" && num > Number(max));
       if (!breach) ok += 1;
     });
@@ -1346,7 +1362,7 @@ class PlantSensorCard extends HTMLElement {
       if (stateObj && stateObj.state !== "unknown" && stateObj.state !== "unavailable") {
         const num = Number(stateObj.state);
         if (Number.isFinite(num)) {
-          if (minAttr !== undefined && minAttr !== "" && num < Number(minAttr)) {
+          if (minAttr !== undefined && minAttr !== "" && num < Number(minAttr) && !this._lowBreachSuppressed(def.key)) {
             severity = this._breachSeverity(num, minAttr, "low");
           }
           if (maxAttr !== undefined && maxAttr !== "" && num > Number(maxAttr)) {

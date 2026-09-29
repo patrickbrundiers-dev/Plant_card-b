@@ -1,0 +1,59 @@
+<!doctype html>
+<html><head><meta charset="utf-8" /></head><body>
+<plant-sensor-card id="card"></plant-sensor-card>
+<plant-overview-card id="overview"></plant-overview-card>
+<script src="../plant-sensor-card.js"></script>
+<script src="../plant-overview-card.js"></script>
+<script>
+  const log = (msg) => console.log(msg);
+  const failures = [];
+  const assert = (cond, msg) => { if (!cond) { failures.push(msg); log("FAIL: " + msg); } else log("ok: " + msg); };
+
+  const states = {
+    "sensor.light": { entity_id: "sensor.light", state: "0", attributes: { unit_of_measurement: "lx" } },
+    "sun.sun": { entity_id: "sun.sun", state: "below_horizon", attributes: {} },
+  };
+  const hassNight = { language: "de", themes: { darkMode: false }, states };
+  const hassDay = { language: "de", themes: { darkMode: false }, states: { ...states, "sun.sun": { entity_id: "sun.sun", state: "above_horizon", attributes: {} } } };
+
+  // --- Sensor card: no illuminance-low advice / danger styling at night ---
+  const card = document.getElementById("card");
+  card.setConfig({
+    type: "custom:plant-sensor-card",
+    name: "Test",
+    illuminance_entity: "sensor.light",
+    illuminance_min: 1000,
+    advice_delay_minutes: 0,
+  });
+  card.hass = hassNight;
+
+  const adviceTextsNight = Array.from(card.querySelectorAll(".psc-advice-item")).map((el) => el.textContent.trim());
+  assert(!adviceTextsNight.some((t) => /Licht/.test(t)), "no low-light advice at night (sun below horizon)");
+  const valueElNight = card.querySelector(".psc-metric-value");
+  assert(valueElNight && !valueElNight.className.includes("warning") && !valueElNight.className.includes("danger"), "illuminance value not styled as breach at night");
+
+  // Same card, but daytime: the low-light advice/styling should appear.
+  card.hass = hassDay;
+  const adviceTextsDay = Array.from(card.querySelectorAll(".psc-advice-item")).map((el) => el.textContent.trim());
+  assert(adviceTextsDay.some((t) => /Licht/.test(t)), "low-light advice appears during the day");
+  const valueElDay = card.querySelector(".psc-metric-value");
+  assert(valueElDay && (valueElDay.className.includes("warning") || valueElDay.className.includes("danger")), "illuminance value styled as breach during the day");
+
+  // --- Overview card: illuminance-low doesn't count as a problem at night ---
+  const overview = document.getElementById("overview");
+  overview.setConfig({
+    type: "custom:plant-overview-card",
+    plants: [{ name: "Test", illuminance_entity: "sensor.light", illuminance_min: 1000 }],
+  });
+  overview.hass = hassNight;
+  const statusNight = overview.querySelector(".poc-status").textContent.trim();
+  assert(/Alles gut|All good/.test(statusNight), "overview shows 'all good' at night despite 0 lx (got: " + statusNight + ")");
+
+  overview.hass = hassDay;
+  const statusDay = overview.querySelector(".poc-status").textContent.trim();
+  assert(!/Alles gut|All good/.test(statusDay), "overview flags the low-light issue during the day (got: " + statusDay + ")");
+
+  log(failures.length ? "DONE WITH FAILURES: " + failures.length : "ALL PASSED");
+  window.__testResult = { ok: failures.length === 0, failures };
+</script>
+</body></html>

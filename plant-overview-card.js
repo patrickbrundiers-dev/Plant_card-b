@@ -15,7 +15,7 @@
 (function () {
 "use strict";
 
-const PLANT_OVERVIEW_CARD_VERSION = "1.3.0";
+const PLANT_OVERVIEW_CARD_VERSION = "1.4.0";
 
 const SENSOR_DEFS = [
   { key: "moisture", icon: "mdi:water-percent", unit: "%" },
@@ -199,6 +199,15 @@ function breachSeverity(num, threshold, direction) {
   return num > t * 1.4 ? "danger" : "warning";
 }
 
+// Illuminance-low is expected to breach every night, so it's not counted
+// as a real problem while the sun is down (per Home Assistant's sun.sun
+// entity). Falls back to "no" (never suppress) when sun.sun isn't
+// available.
+function isNight(hass) {
+  const sun = hass && hass.states && hass.states["sun.sun"];
+  return !!sun && sun.state === "below_horizon";
+}
+
 function evaluatePlant(hass, plant) {
   let configured = false;
   let problems = 0;
@@ -218,7 +227,8 @@ function evaluatePlant(hass, plant) {
 
     if (min !== undefined && min !== "") {
       configured = true;
-      if (num < Number(min)) {
+      const suppressed = def.key === "illuminance" && isNight(hass);
+      if (num < Number(min) && !suppressed) {
         problems += 1;
         if (breachSeverity(num, min, "low") === "danger") dangerProblems += 1;
       }

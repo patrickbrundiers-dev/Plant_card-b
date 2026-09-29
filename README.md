@@ -90,6 +90,10 @@ gerade geöffnet ist.
   je nach gewählter Pflanzenart-Vorlage ein passendes Symbol (Kaktus für
   Sukkulenten, Kräuter-Symbol für Kräuter, Blatt für Zimmerpflanzen) statt
   eines generischen Platzhalters
+- **Kein Licht-Fehlalarm nachts**: "Zu wenig Licht" wird unterdrückt,
+  solange laut der Standard-Entität `sun.sun` gerade Nacht ist (0 lx ist
+  dann normal, kein Pflegehinweis). Ist `sun.sun` nicht vorhanden, verhält
+  sich die Karte wie zuvor und prüft die Licht-Schwelle rund um die Uhr
 - Die Batterie bekommt automatisch einen sinnvollen Standard-Grenzwert (20 %)
 - Verfügbar auf Deutsch, Englisch, Französisch und Spanisch (folgt
   automatisch der Home-Assistant-Spracheinstellung)
